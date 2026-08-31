@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class ContentPlan extends Model
 {
     protected $fillable = [
-        'client_name',
+        'client_id', // تم التعديل هنا
         'plan_type',
         'planned_delivery_date',
         'actual_delivery_date',
@@ -24,10 +24,17 @@ class ContentPlan extends Model
         'actual_review_date' => 'datetime',
     ];
 
+    // علاقة الخطة بالموظفين
     public function users()
     {
         return $this->belongsToMany(User::class, 'content_plan_user')
             ->withPivot('task_role')
             ->withTimestamps();
+    }
+
+    // العلاقة الجديدة: الخطة تابعة لعميل
+    public function client()
+    {
+        return $this->belongsTo(Client::class);
     }
 }

@@ -15,7 +15,9 @@ class ContentPlanController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
-        $query = ContentPlan::with('users');
+
+        // التعديل هنا: جلب بيانات العميل مع كل خطة
+        $query = ContentPlan::with(['users', 'client']);
 
         if ($user->role->value === 'employee') {
             $query->whereHas('users', function ($q) use ($user) {
@@ -30,7 +32,7 @@ class ContentPlanController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'client_name' => 'required|string|max:255',
+            'client_id' => 'required|exists:clients,id', // التعديل هنا
             'plan_type' => 'required|string|max:255',
             'planned_delivery_date' => 'required|date',
             'planned_review_date' => 'required|date',
@@ -40,6 +42,8 @@ class ContentPlanController extends Controller
         ]);
 
         $plan = $this->service->createPlan($validated);
+        $plan->load('client'); // جلب العميل بعد الإنشاء لإعادته في الاستجابة
+
         return response()->json(['message' => 'تم إنشاء الخطة بنجاح', 'data' => $plan], 201);
     }
 
@@ -47,7 +51,7 @@ class ContentPlanController extends Controller
     public function update(Request $request, ContentPlan $content_plan)
     {
         $validated = $request->validate([
-            'client_name' => 'required|string|max:255',
+            'client_id' => 'required|exists:clients,id', // التعديل هنا
             'plan_type' => 'required|string|max:255',
             'planned_delivery_date' => 'required|date',
             'planned_review_date' => 'required|date',
@@ -57,6 +61,8 @@ class ContentPlanController extends Controller
         ]);
 
         $plan = $this->service->updatePlan($content_plan, $validated);
+        $plan->load('client'); // جلب العميل بعد التعديل
+
         return response()->json(['message' => 'تم التعديل بنجاح', 'data' => $plan]);
     }
 
@@ -67,7 +73,7 @@ class ContentPlanController extends Controller
         return response()->json(['message' => 'تم الحذف بنجاح']);
     }
 
-    // --- مسارات أفعال الموظف (يتم احتساب الوقت تلقائياً من السيرفر) ---
+    // --- مسارات أفعال الموظف ---
 
     public function markReviewComplete(ContentPlan $content_plan)
     {

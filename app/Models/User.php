@@ -47,4 +47,20 @@ class User extends Authenticatable
             ->withPivot('task_role')
             ->withTimestamps();
     }
+
+    // جلب جميع الأقسام (الأساسية والفرعية) التي يتواجد بها الموظف
+    public function departments()
+    {
+        return $this->belongsToMany(Department::class, 'department_user')
+            ->withPivot('is_primary')
+            ->withTimestamps();
+    }
+
+    // جلب القسم الأساسي فقط للموظف
+    public function primaryDepartment()
+    {
+        return $this->belongsToMany(Department::class, 'department_user')
+            ->wherePivot('is_primary', true)
+            ->withTimestamps();
+    }
 }

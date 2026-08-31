@@ -3,75 +3,91 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Services\UserService;
-use Illuminate\Http\Request;
-use App\Enums\Role;
-use App\Enums\WorkType;
-use Illuminate\Validation\Rules\Enum;
 use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rule;
+
 class UserController extends Controller
 {
-    public function __construct(private UserService $userService) {}
-
-    public function store(Request $request)
+    public function index()
     {
-        // التحقق من صحة البيانات القادمة من الفرونت إند
-        $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|string|email|unique:users,email',
-            'password' => 'required|string|min:8',
-            'role' => ['required', new Enum(Role::class)],
-            'phone' => 'required|string|max:20',
-            'work_type' => ['required', new Enum(WorkType::class)],
-        ]);
-
-        $user = $this->userService->createUser($validated);
-
-        return response()->json([
-            'message' => 'تم إنشاء المستخدم بنجاح',
-            'data' => $user
-        ], 201);
-    }
-
-    public function index(Request $request)
-    {
-        // استخراج الفلاتر المطلوبة من الرابط
-        $filters = $request->only(['search', 'role', 'work_type']);
-        $perPage = $request->input('per_page', 10);
-
-        $users = $this->userService->getAllUsers($filters, $perPage);
-
-        // إرجاع استجابة لارافيل الافتراضية للـ Pagination
+        // جلب المستخدمين مع أقسامهم
+        $users = User::with('departments')->orderBy('id', 'desc')->paginate(15);
         return response()->json($users);
     }
 
-    // تعديل مستخدم موجود
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => 'required|string|email|max:255|unique:users',
+            'password' => 'required|string|min:8',
+            'phone' => 'required|string|max:20', // تم إضافة الهاتف هنا
+            'role' => 'required|in:manager,employee',
+            'primary_department_id' => 'nullable|exists:departments,id',
+            'additional_department_ids' => 'nullable|array',
+            'additional_department_ids.*' => 'exists:departments,id'
+        ]);
+
+        $validated['password'] = Hash::make($validated['password']);
+        $user = User::create($validated);
+
+        $this->syncUserDepartments($user, $request);
+
+        return response()->json(['message' => 'تم إضافة المستخدم بنجاح', 'data' => $user->load('departments')], 201);
+    }
+
     public function update(Request $request, User $user)
     {
         $validated = $request->validate([
-            'name' => 'sometimes|required|string|max:255',
-            'email' => 'sometimes|required|string|email|unique:users,email,' . $user->id,
-            'password' => 'nullable|string|min:8',
-            'role' => ['sometimes', 'required', new Enum(Role::class)],
-            'phone' => 'sometimes|required|string|max:20',
-            'work_type' => ['sometimes', 'required', new Enum(WorkType::class)],
+            'name' => 'required|string|max:255',
+            'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users')->ignore($user->id)],
+            'phone' => 'required|string|max:20', // وتم إضافته هنا أيضاً
+            'role' => 'required|in:manager,employee',
+            'primary_department_id' => 'nullable|exists:departments,id',
+            'additional_department_ids' => 'nullable|array',
+            'additional_department_ids.*' => 'exists:departments,id'
         ]);
 
-        $updatedUser = $this->userService->updateUser($user, $validated);
+        if ($request->filled('password')) {
+            $validated['password'] = Hash::make($request->password);
+        }
 
-        return response()->json([
-            'message' => 'تم التحديث بنجاح',
-            'data' => $updatedUser
-        ]);
+        $user->update($validated);
+
+        $this->syncUserDepartments($user, $request);
+
+        return response()->json(['message' => 'تم تعديل المستخدم بنجاح', 'data' => $user->load('departments')]);
     }
 
-    // حذف مستخدم
     public function destroy(User $user)
     {
-        $this->userService->deleteUser($user);
+        $user->delete();
+        return response()->json(['message' => 'تم الحذف بنجاح']);
+    }
 
-        return response()->json([
-            'message' => 'تم الحذف بنجاح'
-        ]);
+    // دالة مساعدة لربط الموظف بالقسم الأساسي والأقسام الإضافية
+    private function syncUserDepartments(User $user, Request $request)
+    {
+        $syncData = [];
+
+        // إضافة القسم الأساسي (is_primary = true)
+        if ($request->filled('primary_department_id')) {
+            $syncData[$request->primary_department_id] = ['is_primary' => true];
+        }
+
+        // إضافة الأقسام الإضافية (is_primary = false)
+        if ($request->filled('additional_department_ids')) {
+            foreach ($request->additional_department_ids as $deptId) {
+                // التأكد من عدم تكرار القسم الأساسي كقسم إضافي
+                if ($deptId != $request->primary_department_id) {
+                    $syncData[$deptId] = ['is_primary' => false];
+                }
+            }
+        }
+
+        // تنفيذ عملية الربط في قاعدة البيانات
+        $user->departments()->sync($syncData);
     }
 }
