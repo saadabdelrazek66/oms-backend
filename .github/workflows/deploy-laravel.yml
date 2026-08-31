@@ -1,4 +1,4 @@
-name: Deploy Laravel API to Hostinger via SCP
+name: Deploy Laravel to Hostinger
 
 on:
   push:
@@ -6,31 +6,37 @@ on:
       - main
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 1. تجهيز بيئة PHP
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.2'
-          extensions: mbstring, xml, ctype, iconv, intl, pdo_sqlite, dom, filter, gd, iconv, json, libxml, mbstring, openssl, pcre, phar, session, tokenizer, xml, xmlwriter, fileinfo
+      - name: Remove unwanted files
+        run: rm -rf .git .github tests node_modules
 
-      - name: Install Composer Dependencies
-        run: composer install --no-dev --optimize-autoloader --prefer-dist
-
-      # 3. رفع الملفات لهوستنجر
-      - name: Deploy to Hostinger via SCP
+      - name: Copy Files to Hostinger via SCP
         uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           port: 65002
-          source: "."
+          source: "./"
           target: "/home/u578673289/domains/octomedia.digital/public_html/api-management/"
-          rm: false
+
+      - name: Run Laravel Commands via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: 65002
+          script: |
+            cd /home/u578673289/domains/octomedia.digital/public_html/api-management/
+            composer install --optimize-autoloader --no-dev
+            php artisan config:cache
+            php artisan route:cache
+            php artisan view:cache
+            php artisan migrate --force
