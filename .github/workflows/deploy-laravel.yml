@@ -17,10 +17,9 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.2' # تأكد إن ده نفس الإصدار اللي اعتمدناه في هوستنجر
+          php-version: '8.4'
           extensions: mbstring, xml, ctype, iconv, intl, pdo_sqlite, dom, filter, gd, iconv, json, libxml, mbstring, openssl, pcre, phar, session, tokenizer, xml, xmlwriter, fileinfo
 
-      # 2. تسطيب حزم لارفيل (بدون الحزم الخاصة ببيئة التطوير لتخفيف المساحة)
       - name: Install Composer Dependencies
         run: composer install --no-dev --optimize-autoloader --prefer-dist
 
