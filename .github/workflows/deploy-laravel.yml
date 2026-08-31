@@ -13,9 +13,20 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # 1. تجهيز بيئة PHP 8.4 على سيرفرات جيت هاب
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+
+      # 2. بناء ملفات الباك اند وتجهيز فولدر vendor قبل النقل
+      - name: Install Composer Dependencies
+        run: composer install --optimize-autoloader --no-dev
+
       - name: Remove unwanted files
         run: rm -rf .git .github tests node_modules
 
+      # 3. نقل كل الملفات (بما فيها vendor الجديد) للسيرفر
       - name: Copy Files to Hostinger via SCP
         uses: appleboy/scp-action@master
         with:
@@ -26,6 +37,7 @@ jobs:
           source: "./"
           target: "/home/u578673289/domains/octomedia.digital/public_html/api-management/"
 
+      # 4. تنفيذ أوامر لارفيل فقط (بدون composer) على هوستنجر
       - name: Run Laravel Commands via SSH
         uses: appleboy/ssh-action@master
         with:
@@ -35,7 +47,6 @@ jobs:
           port: 65002
           script: |
             cd /home/u578673289/domains/octomedia.digital/public_html/api-management/
-            composer install --optimize-autoloader --no-dev
             php artisan config:cache
             php artisan route:cache
             php artisan view:cache
