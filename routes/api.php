@@ -30,7 +30,27 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::get('/content-plans', [ContentPlanController::class, 'index']);
-    Route::post('/content-plans/{content_plan}/review-complete', [ContentPlanController::class, 'markReviewComplete']);
-    Route::post('/content-plans/{content_plan}/final-delivery', [ContentPlanController::class, 'markFinalDelivery']);
-    Route::put('/content-plans/{content_plan}/details', [ContentPlanController::class, 'updateDetails']);
-});
+    // مسارات أفعال الخطط
+    Route::post('content-plans/{content_plan}/submit-review', [ContentPlanController::class, 'submitForReview']);
+    Route::post('content-plans/{content_plan}/final-delivery', [ContentPlanController::class, 'submitFinalDelivery']);
+    Route::post('content-plans/{content_plan}/approve', [ContentPlanController::class, 'approvePlan']);
+    Route::post('content-plans/{content_plan}/reject', [ContentPlanController::class, 'rejectPlan']);
+    Route::put('content-plans/{content_plan}/details', [ContentPlanController::class, 'updateDetails']);
+
+    // مسارات متابعة العملاء (Client Follow-ups)
+    Route::post('content-plans/{content_plan}/follow-ups', [App\Http\Controllers\Api\ClientFollowUpController::class, 'store']);
+    Route::put('follow-ups/{client_follow_up}', [App\Http\Controllers\Api\ClientFollowUpController::class, 'update']);
+    Route::delete('follow-ups/{client_follow_up}', [App\Http\Controllers\Api\ClientFollowUpController::class, 'destroy']);
+
+    // مسارات خزنة العملاء (Client Vault) - للمديرين فقط
+    Route::prefix('vault')->group(function () {
+        Route::get('status', [App\Http\Controllers\Api\ClientVaultController::class, 'status']);
+        Route::post('setup-pin', [App\Http\Controllers\Api\ClientVaultController::class, 'setupPin']);
+        Route::post('verify-pin', [App\Http\Controllers\Api\ClientVaultController::class, 'verifyPin']);
+
+        Route::get('clients', [App\Http\Controllers\Api\ClientVaultController::class, 'index']);
+        Route::post('clients/{client}/credentials', [App\Http\Controllers\Api\ClientVaultController::class, 'store']);
+        Route::put('credentials/{credential}', [App\Http\Controllers\Api\ClientVaultController::class, 'update']);
+        Route::delete('credentials/{credential}', [App\Http\Controllers\Api\ClientVaultController::class, 'destroy']);
+    });
+    });

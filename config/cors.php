@@ -19,7 +19,8 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['*'],
+//    'allowed_origins' => ['http://localhost:5173', 'https://management.octomedia.digital'],
+    'allowed_origins' => ['https://management.octomedia.digital'],
 
     'allowed_origins_patterns' => [],
 

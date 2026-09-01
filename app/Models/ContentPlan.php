@@ -7,8 +7,10 @@ use Illuminate\Database\Eloquent\Model;
 class ContentPlan extends Model
 {
     protected $fillable = [
-        'client_id', // تم التعديل هنا
+        'client_id',
         'plan_type',
+        'requires_review',
+        'status',
         'planned_delivery_date',
         'actual_delivery_date',
         'planned_review_date',
@@ -36,5 +38,16 @@ class ContentPlan extends Model
     public function client()
     {
         return $this->belongsTo(Client::class);
+    }
+
+    public function reviewHistories()
+    {
+        return $this->hasMany(PlanReviewHistory::class)->orderBy('created_at', 'desc');
+    }
+
+    // علاقة الخطة بسجل متابعة العميل
+    public function clientFollowUps()
+    {
+        return $this->hasMany(ClientFollowUp::class)->orderBy('created_at', 'desc');
     }
 }

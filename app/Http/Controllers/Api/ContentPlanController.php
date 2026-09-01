@@ -11,14 +11,11 @@ class ContentPlanController extends Controller
 {
     public function __construct(private ContentPlanService $service) {}
 
-    // عرض الخطط (المدير يرى الكل - الموظف يرى خططه فقط)
     public function index(Request $request)
     {
         $user = $request->user();
 
-        // التعديل هنا: جلب بيانات العميل مع كل خطة
-        $query = ContentPlan::with(['users', 'client']);
-
+        $query = ContentPlan::with(['users', 'client', 'reviewHistories.reviewer', 'clientFollowUps.user']);
         if ($user->role->value === 'employee') {
             $query->whereHas('users', function ($q) use ($user) {
                 $q->where('users.id', $user->id);
@@ -28,63 +25,73 @@ class ContentPlanController extends Controller
         return response()->json($query->orderBy('id', 'desc')->paginate(15));
     }
 
-    // إضافة خطة (للمدير)
     public function store(Request $request)
     {
-        $validated = $request->validate([
-            'client_id' => 'required|exists:clients,id', // التعديل هنا
-            'plan_type' => 'required|string|max:255',
-            'planned_delivery_date' => 'required|date',
-            'planned_review_date' => 'required|date',
-            'responsible_ids' => 'nullable|array',
-            'specialist_ids' => 'nullable|array',
-            'executor_ids' => 'nullable|array',
-        ]);
-
+        $validated = $this->validatePlan($request);
         $plan = $this->service->createPlan($validated);
-        $plan->load('client'); // جلب العميل بعد الإنشاء لإعادته في الاستجابة
-
-        return response()->json(['message' => 'تم إنشاء الخطة بنجاح', 'data' => $plan], 201);
+        return response()->json(['message' => 'تم إنشاء الخطة بنجاح', 'data' => $plan->load('client', 'reviewHistories.reviewer')], 201);
     }
 
-    // تعديل خطة (للمدير)
     public function update(Request $request, ContentPlan $content_plan)
     {
-        $validated = $request->validate([
-            'client_id' => 'required|exists:clients,id', // التعديل هنا
-            'plan_type' => 'required|string|max:255',
-            'planned_delivery_date' => 'required|date',
-            'planned_review_date' => 'required|date',
-            'responsible_ids' => 'nullable|array',
-            'specialist_ids' => 'nullable|array',
-            'executor_ids' => 'nullable|array',
-        ]);
-
+        $validated = $this->validatePlan($request);
         $plan = $this->service->updatePlan($content_plan, $validated);
-        $plan->load('client'); // جلب العميل بعد التعديل
-
-        return response()->json(['message' => 'تم التعديل بنجاح', 'data' => $plan]);
+        return response()->json(['message' => 'تم التعديل بنجاح', 'data' => $plan->load('client', 'reviewHistories.reviewer')]);
     }
 
-    // حذف خطة (للمدير)
     public function destroy(ContentPlan $content_plan)
     {
         $content_plan->delete();
         return response()->json(['message' => 'تم الحذف بنجاح']);
     }
 
-    // --- مسارات أفعال الموظف ---
-
-    public function markReviewComplete(ContentPlan $content_plan)
+    // دالة مساعدة للتحقق من البيانات (بما فيها الشروط الإجبارية للمراجعة)
+    private function validatePlan(Request $request)
     {
-        $plan = $this->service->markReviewComplete($content_plan);
-        return response()->json(['message' => 'تم تسجيل وقت المراجعة بنجاح', 'data' => $plan]);
+        // تحويل القيمة إلى Boolean
+        $request->merge(['requires_review' => filter_var($request->requires_review, FILTER_VALIDATE_BOOLEAN)]);
+
+        return $request->validate([
+            'client_id' => 'required|exists:clients,id',
+            'plan_type' => 'required|string|max:255',
+            'requires_review' => 'boolean',
+            'planned_delivery_date' => 'required|date',
+            // تاريخ المراجعة إجباري فقط لو الخيار مفعل
+            'planned_review_date' => 'required_if:requires_review,true|nullable|date',
+            'responsible_ids' => 'nullable|array',
+            // المراجع إجباري فقط لو الخيار مفعل
+            'reviewer_ids' => 'required_if:requires_review,true|array',
+            'executor_ids' => 'nullable|array',
+            'final_link' => 'nullable|url',
+            'notes' => 'nullable|string'
+        ]);
     }
 
-    public function markFinalDelivery(ContentPlan $content_plan)
+    // --- مسارات الإجراءات (Actions) ---
+
+    public function submitForReview(ContentPlan $content_plan)
     {
-        $plan = $this->service->markFinalDelivery($content_plan);
-        return response()->json(['message' => 'تم تسجيل وقت التسليم بنجاح', 'data' => $plan]);
+        $plan = $this->service->submitForReview($content_plan);
+        return response()->json(['message' => 'تم الإرسال للمراجعة الداخلية', 'data' => $plan->load('reviewHistories.reviewer')]);
+    }
+
+    public function submitFinalDelivery(ContentPlan $content_plan)
+    {
+        $plan = $this->service->submitFinalDelivery($content_plan);
+        return response()->json(['message' => 'تم التسليم النهائي بنجاح', 'data' => $plan->load('reviewHistories.reviewer')]);
+    }
+
+    public function approvePlan(Request $request, ContentPlan $content_plan)
+    {
+        $plan = $this->service->approvePlan($content_plan, $request->user()->id);
+        return response()->json(['message' => 'تم اعتماد الخطة وهي الآن جاهزة للتسليم', 'data' => $plan->load('reviewHistories.reviewer')]);
+    }
+
+    public function rejectPlan(Request $request, ContentPlan $content_plan)
+    {
+        $request->validate(['notes' => 'required|string']);
+        $plan = $this->service->rejectPlan($content_plan, $request->user()->id, $request->notes);
+        return response()->json(['message' => 'تم رفض الخطة وإرسال الملاحظات', 'data' => $plan->load('reviewHistories.reviewer')]);
     }
 
     public function updateDetails(Request $request, ContentPlan $content_plan)
