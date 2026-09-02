@@ -8,21 +8,21 @@ use Illuminate\Validation\ValidationException;
 
 class AuthService
 {
-    public function login(array $credentials)
+    public function login(array $credentials, bool $remember = false)
     {
-        $user = User::where('email', $credentials['email'])->first();
-
-        if (! $user || ! Hash::check($credentials['password'], $user->password)) {
-            throw ValidationException::withMessages([
-                'email' => ['البيانات المدخلة غير صحيحة.'],
-            ]);
+        if (!auth()->attempt($credentials)) {
+            abort(401, 'البريد الإلكتروني أو كلمة المرور غير صحيحة.');
         }
 
-        $token = $user->createToken('auth_token')->plainTextToken;
+        $user = auth()->user();
+
+        $expiration = $remember ? now()->addYears(1) : now()->addHours(12);
+
+        $token = $user->createToken('auth_token', ['*'], $expiration)->plainTextToken;
 
         return [
             'user' => $user,
-            'token' => $token
+            'token' => $token,
         ];
     }
 

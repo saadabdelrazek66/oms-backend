@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\ContentPlanRequest;
 use App\Models\ContentPlan;
 use App\Services\ContentPlanService;
 use Illuminate\Http\Request;
@@ -25,46 +26,30 @@ class ContentPlanController extends Controller
         return response()->json($query->orderBy('id', 'desc')->paginate(15));
     }
 
-    public function store(Request $request)
+    // إضافة خطة جديدة
+    public function store(ContentPlanRequest $request)
     {
-        $validated = $this->validatePlan($request);
-        $plan = $this->service->createPlan($validated);
-        return response()->json(['message' => 'تم إنشاء الخطة بنجاح', 'data' => $plan->load('client', 'reviewHistories.reviewer')], 201);
+        $plan = $this->service->createPlan($request->validated());
+        return response()->json([
+            'message' => 'تم إنشاء الخطة بنجاح',
+            'data' => $plan->load('client', 'reviewHistories.reviewer')
+        ], 201);
     }
 
-    public function update(Request $request, ContentPlan $content_plan)
+    // تعديل خطة موجودة
+    public function update(ContentPlanRequest $request, ContentPlan $content_plan)
     {
-        $validated = $this->validatePlan($request);
-        $plan = $this->service->updatePlan($content_plan, $validated);
-        return response()->json(['message' => 'تم التعديل بنجاح', 'data' => $plan->load('client', 'reviewHistories.reviewer')]);
+        $plan = $this->service->updatePlan($content_plan, $request->validated());
+        return response()->json([
+            'message' => 'تم التعديل بنجاح',
+            'data' => $plan->load('client', 'reviewHistories.reviewer')
+        ]);
     }
 
     public function destroy(ContentPlan $content_plan)
     {
         $content_plan->delete();
         return response()->json(['message' => 'تم الحذف بنجاح']);
-    }
-
-    // دالة مساعدة للتحقق من البيانات (بما فيها الشروط الإجبارية للمراجعة)
-    private function validatePlan(Request $request)
-    {
-        // تحويل القيمة إلى Boolean
-        $request->merge(['requires_review' => filter_var($request->requires_review, FILTER_VALIDATE_BOOLEAN)]);
-
-        return $request->validate([
-            'client_id' => 'required|exists:clients,id',
-            'plan_type' => 'required|string|max:255',
-            'requires_review' => 'boolean',
-            'planned_delivery_date' => 'required|date',
-            // تاريخ المراجعة إجباري فقط لو الخيار مفعل
-            'planned_review_date' => 'required_if:requires_review,true|nullable|date',
-            'responsible_ids' => 'nullable|array',
-            // المراجع إجباري فقط لو الخيار مفعل
-            'reviewer_ids' => 'required_if:requires_review,true|array',
-            'executor_ids' => 'nullable|array',
-            'final_link' => 'nullable|url',
-            'notes' => 'nullable|string'
-        ]);
     }
 
     // --- مسارات الإجراءات (Actions) ---

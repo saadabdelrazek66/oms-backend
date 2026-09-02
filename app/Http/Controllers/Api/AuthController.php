@@ -3,23 +3,20 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\LoginRequest;
 use App\Services\AuthService;
 use Illuminate\Http\Request;
 
 class AuthController extends Controller
 {
-    // حقن الـ AuthService باستخدام الـ Constructor Property Promotion
     public function __construct(private AuthService $authService) {}
 
-    public function login(Request $request)
+    public function login(LoginRequest $request)
     {
-        $request->validate([
-            'email' => 'required|email',
-            'password' => 'required',
-        ]);
-
-        // استدعاء المنطق من الـ Service
-        $result = $this->authService->login($request->only('email', 'password'));
+        $result = $this->authService->login(
+            $request->only('email', 'password'),
+            $request->boolean('remember')
+        );
 
         return response()->json([
             'message' => 'تم تسجيل الدخول بنجاح',

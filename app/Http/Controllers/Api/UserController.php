@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
+use App\Http\Requests\UserRequest;
 
 class UserController extends Controller
 {
@@ -17,48 +18,44 @@ class UserController extends Controller
         return response()->json($users);
     }
 
-    public function store(Request $request)
+    // إضافة مستخدم جديد
+    public function store(UserRequest $request)
     {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
-            'password' => 'required|string|min:8',
-            'phone' => 'required|string|max:20', // تم إضافة الهاتف هنا
-            'role' => 'required|in:manager,employee',
-            'primary_department_id' => 'nullable|exists:departments,id',
-            'additional_department_ids' => 'nullable|array',
-            'additional_department_ids.*' => 'exists:departments,id'
-        ]);
+        $validated = $request->validated();
 
+        // تشفير كلمة المرور قبل الحفظ
         $validated['password'] = Hash::make($validated['password']);
+
         $user = User::create($validated);
 
+        // مزامنة الأقسام
         $this->syncUserDepartments($user, $request);
 
-        return response()->json(['message' => 'تم إضافة المستخدم بنجاح', 'data' => $user->load('departments')], 201);
+        return response()->json([
+            'message' => 'تم إضافة المستخدم بنجاح',
+            'data' => $user->load('departments')
+        ], 201);
     }
 
-    public function update(Request $request, User $user)
+    // تعديل بيانات مستخدم
+    public function update(UserRequest $request, User $user)
     {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users')->ignore($user->id)],
-            'phone' => 'required|string|max:20', // وتم إضافته هنا أيضاً
-            'role' => 'required|in:manager,employee',
-            'primary_department_id' => 'nullable|exists:departments,id',
-            'additional_department_ids' => 'nullable|array',
-            'additional_department_ids.*' => 'exists:departments,id'
-        ]);
+        $validated = $request->validated();
 
         if ($request->filled('password')) {
             $validated['password'] = Hash::make($request->password);
+        } else {
+            unset($validated['password']);
         }
 
         $user->update($validated);
 
         $this->syncUserDepartments($user, $request);
 
-        return response()->json(['message' => 'تم تعديل المستخدم بنجاح', 'data' => $user->load('departments')]);
+        return response()->json([
+            'message' => 'تم تعديل المستخدم بنجاح',
+            'data' => $user->load('departments')
+        ]);
     }
 
     public function destroy(User $user)

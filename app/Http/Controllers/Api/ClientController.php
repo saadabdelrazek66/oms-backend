@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Client;
 use App\Services\ClientService;
 use Illuminate\Http\Request;
+use App\Http\Requests\ClientRequest;
 
 class ClientController extends Controller
 {
@@ -19,47 +20,25 @@ class ClientController extends Controller
     }
 
     // إضافة عميل جديد
-    public function store(Request $request)
+    public function store(ClientRequest $request)
     {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'phone' => 'nullable|string|max:50',
-            'email' => 'nullable|email|max:255',
-            'bank_account' => 'nullable|string|max:255',
-            'instapay' => 'nullable|string|max:255',
-            'wallet' => 'nullable|string|max:255',
-            'social_links' => 'nullable|array', // التحقق من أن السوشيال ميديا عبارة عن مصفوفة
-            'contacts' => 'nullable|array', // التحقق من أن جهات الاتصال عبارة عن مصفوفة
+        $client = $this->service->createClient($request->validated());
 
-            // التحقق من كل عنصر داخل مصفوفة جهات الاتصال
-            'contacts.*.contact_name' => 'required|string|max:255',
-            'contacts.*.contact_method' => 'required|string|max:255',
-            'contacts.*.contact_details' => 'required|string|max:255',
-        ]);
-
-        $client = $this->service->createClient($validated);
-        return response()->json(['message' => 'تم إضافة العميل بنجاح', 'data' => $client], 201);
+        return response()->json([
+            'message' => 'تم إضافة العميل بنجاح',
+            'data' => $client
+        ], 201);
     }
 
     // تعديل بيانات عميل
-    public function update(Request $request, Client $client)
+    public function update(ClientRequest $request, Client $client)
     {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'phone' => 'nullable|string|max:50',
-            'email' => 'nullable|email|max:255',
-            'bank_account' => 'nullable|string|max:255',
-            'instapay' => 'nullable|string|max:255',
-            'wallet' => 'nullable|string|max:255',
-            'social_links' => 'nullable|array',
-            'contacts' => 'nullable|array',
-            'contacts.*.contact_name' => 'required|string|max:255',
-            'contacts.*.contact_method' => 'required|string|max:255',
-            'contacts.*.contact_details' => 'required|string|max:255',
-        ]);
+        $updatedClient = $this->service->updateClient($client, $request->validated());
 
-        $updatedClient = $this->service->updateClient($client, $validated);
-        return response()->json(['message' => 'تم تعديل العميل بنجاح', 'data' => $updatedClient]);
+        return response()->json([
+            'message' => 'تم تعديل العميل بنجاح',
+            'data' => $updatedClient
+        ]);
     }
 
     // حذف العميل (بفضل cascadeOnDelete في الداتابيز، سيتم حذف جهات الاتصال التابعة له تلقائياً)

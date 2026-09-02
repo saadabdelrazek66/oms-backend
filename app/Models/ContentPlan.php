@@ -15,6 +15,7 @@ class ContentPlan extends Model
         'actual_delivery_date',
         'planned_review_date',
         'actual_review_date',
+        'reference_links',
         'final_link',
         'notes',
     ];
@@ -24,6 +25,7 @@ class ContentPlan extends Model
         'actual_delivery_date' => 'datetime',
         'planned_review_date' => 'datetime',
         'actual_review_date' => 'datetime',
+        'reference_links' => 'array',
     ];
 
     // علاقة الخطة بالموظفين

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\ClientCredentialRequest;
 use App\Models\Client;
 use App\Models\ClientCredential;
 use Illuminate\Http\Request;
@@ -72,37 +73,33 @@ class ClientVaultController extends Controller
     }
 
     // 5. إضافة حساب جديد لعميل
-    public function store(Request $request, Client $client)
+    public function store(ClientCredentialRequest $request, Client $client)
     {
+        // 1. التحقق من أمان الخزنة (الرقم السري للمدير)
         $this->ensureVaultUnlocked($request);
 
-        $validated = $request->validate([
-            'platform' => 'required|string',
-            'login_url' => 'nullable|url',
-            'username' => 'required|string',
-            'password' => 'required|string',
-            'two_factor_notes' => 'nullable|string',
-        ]);
+        // 2. حفظ البيانات بعد التأكد من صحتها (Validation)
+        $credential = $client->credentials()->create($request->validated());
 
-        $credential = $client->credentials()->create($validated);
-        return response()->json(['message' => 'تم حفظ البيانات في الخزنة بنجاح', 'data' => $credential]);
+        return response()->json([
+            'message' => 'تم حفظ البيانات المشفرة في الخزنة بنجاح',
+            'data' => $credential
+        ], 201);
     }
 
     // 6. تعديل حساب موجود
-    public function update(Request $request, ClientCredential $credential)
+    public function update(ClientCredentialRequest $request, ClientCredential $credential)
     {
+        // 1. التحقق من أمان الخزنة (الرقم السري للمدير)
         $this->ensureVaultUnlocked($request);
 
-        $validated = $request->validate([
-            'platform' => 'required|string',
-            'login_url' => 'nullable|url',
-            'username' => 'required|string',
-            'password' => 'required|string',
-            'two_factor_notes' => 'nullable|string',
-        ]);
+        // 2. تحديث البيانات
+        $credential->update($request->validated());
 
-        $credential->update($validated);
-        return response()->json(['message' => 'تم التحديث بنجاح', 'data' => $credential]);
+        return response()->json([
+            'message' => 'تم التحديث بنجاح',
+            'data' => $credential
+        ]);
     }
 
     // 7. حذف حساب

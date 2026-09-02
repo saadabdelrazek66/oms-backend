@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\DepartmentRequest;
 use App\Models\Department;
 use Illuminate\Http\Request;
 
@@ -21,26 +22,24 @@ class DepartmentController extends Controller
         return response()->json(Department::select('id', 'name')->get());
     }
 
-    public function store(Request $request)
+    // إضافة قسم جديد
+    public function store(DepartmentRequest $request)
     {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255|unique:departments,name',
-            'description' => 'nullable|string'
-        ]);
-
-        $department = Department::create($validated);
-        return response()->json(['message' => 'تم إنشاء القسم بنجاح', 'data' => $department], 201);
+        $department = Department::create($request->validated());
+        return response()->json([
+            'message' => 'تم إنشاء القسم بنجاح',
+            'data' => $department
+        ], 201);
     }
 
-    public function update(Request $request, Department $department)
+    // تعديل قسم موجود
+    public function update(DepartmentRequest $request, Department $department)
     {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255|unique:departments,name,' . $department->id,
-            'description' => 'nullable|string'
+        $department->update($request->validated());
+        return response()->json([
+            'message' => 'تم تعديل القسم بنجاح',
+            'data' => $department
         ]);
-
-        $department->update($validated);
-        return response()->json(['message' => 'تم تعديل القسم بنجاح', 'data' => $department]);
     }
 
     public function destroy(Department $department)
