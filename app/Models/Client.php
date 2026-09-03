@@ -8,17 +8,20 @@ class Client extends Model
 {
     protected $fillable = [
         'name',
-        'phone',
-        'email',
+        'phones',
+        'emails',
+        'bank_name',
+        'bank_branch',
         'bank_account',
         'instapay',
         'wallet',
         'social_links',
     ];
 
-    // تحويل حقل السوشيال ميديا تلقائياً من وإلى مصفوفة
     protected $casts = [
         'social_links' => 'array',
+        'phones' => 'array',
+        'emails' => 'array',
     ];
 
     // علاقة العميل بجهات الاتصال (One-to-Many)

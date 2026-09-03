@@ -6,51 +6,60 @@ use App\Http\Controllers\Controller;
 use App\Models\ClientFollowUp;
 use App\Models\ContentPlan;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use App\Http\Requests\FollowUpRequest;
 
 class ClientFollowUpController extends Controller
 {
-    public function store(Request $request, ContentPlan $content_plan)
+    // دالة الإضافة
+    public function store(FollowUpRequest $request, ContentPlan $content_plan)
     {
-        $request->validate(['content' => 'required|string']);
+        $validated = $request->validated();
+        $validated['user_id'] = auth()->id(); // ربط المتابعة بالموظف الحالي
 
-        $followUp = $content_plan->clientFollowUps()->create([
-            'user_id' => $request->user()->id,
-            // استخدمنا input() لتجنب التعارض مع الكلمة المحجوزة
-            'content' => $request->input('content'),
-        ]);
-
-        return response()->json([
-            'message' => 'تمت إضافة المتابعة بنجاح',
-            'data' => $followUp->load('user')
-        ], 201);
-    }
-
-    public function update(Request $request, ClientFollowUp $clientFollowUp)
-    {
-        if ($request->user()->role->value !== 'manager' && $request->user()->id !== $clientFollowUp->user_id) {
-            return response()->json(['message' => 'غير مصرح لك بتعديل هذه المتابعة'], 403);
+        // إذا كان هناك صورة مرفقة، قم برفعها داخل مجلد 'follow_ups' في الـ public disk
+        if ($request->hasFile('image')) {
+            $validated['image_path'] = $request->file('image')->store('follow_ups', 'public');
         }
 
-        $request->validate(['content' => 'required|string']);
+        // ملاحظة: تأكد أن العلاقة في موديل ContentPlan اسمها clientFollowUps أو followUps حسب ما برمجته
+        $followUp = $content_plan->clientFollowUps()->create($validated);
 
-        // استخدمنا input() لتجنب التعارض مع الكلمة المحجوزة
-        $clientFollowUp->content = $request->input('content');
-        $clientFollowUp->save();
-
-        return response()->json([
-            'message' => 'تم التعديل بنجاح',
-            'data' => $clientFollowUp->load('user')
-        ]);
+        return response()->json(['message' => 'تمت إضافة التحديث بنجاح', 'data' => $followUp], 201);
     }
 
-    public function destroy(Request $request, ClientFollowUp $clientFollowUp)
+    // دالة التعديل
+    public function update(FollowUpRequest $request, $id)
     {
-        if ($request->user()->role->value !== 'manager' && $request->user()->id !== $clientFollowUp->user_id) {
-            return response()->json(['message' => 'غير مصرح لك بالحذف'], 403);
+        $followUp = \App\Models\ClientFollowUp::findOrFail($id);
+        $validated = $request->validated();
+
+        if ($request->hasFile('image')) {
+            // مسح الصورة القديمة من السيرفر إذا كانت موجودة
+            if ($followUp->image_path) {
+                Storage::disk('public')->delete($followUp->image_path);
+            }
+            // رفع الصورة الجديدة
+            $validated['image_path'] = $request->file('image')->store('follow_ups', 'public');
         }
 
-        $clientFollowUp->delete();
+        $followUp->update($validated);
 
-        return response()->json(['message' => 'تم الحذف بنجاح']);
+        return response()->json(['message' => 'تم تعديل التحديث بنجاح', 'data' => $followUp]);
+    }
+
+    // دالة الحذف
+    public function destroy($id)
+    {
+        $followUp = \App\Models\ClientFollowUp::findOrFail($id);
+
+        // مسح الصورة من السيرفر قبل حذف السجل من قاعدة البيانات
+        if ($followUp->image_path) {
+            Storage::disk('public')->delete($followUp->image_path);
+        }
+
+        $followUp->delete();
+
+        return response()->json(['message' => 'تم حذف التحديث بنجاح']);
     }
 }

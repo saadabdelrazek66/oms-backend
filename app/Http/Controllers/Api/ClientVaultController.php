@@ -62,14 +62,27 @@ class ClientVaultController extends Controller
         }
     }
 
-    // 4. جلب بيانات الخزنة (العملاء بحساباتهم)
     public function index(Request $request)
     {
         $this->ensureVaultUnlocked($request);
-
-        // نجلب العملاء مع حساباتهم السرية
         $clients = Client::with('credentials')->get();
-        return response()->json(['data' => $clients]);
+        $jsonData = json_encode($clients);
+
+        // المفتاح الجديد (32 حرف)
+        $key = env('VAULT_SECRET_KEY', 'OctoSpaceSecureVaultKey2026!@#$*');
+        $method = 'aes-256-cbc';
+
+        $ivLength = openssl_cipher_iv_length($method);
+        $iv = openssl_random_pseudo_bytes($ivLength);
+
+        // التعديل هنا: إضافة OPENSSL_RAW_DATA
+        $encrypted = openssl_encrypt($jsonData, $method, $key, OPENSSL_RAW_DATA, $iv);
+
+        return response()->json([
+            'encrypted' => true,
+            'payload' => base64_encode($encrypted),
+            'iv' => base64_encode($iv)
+        ]);
     }
 
     // 5. إضافة حساب جديد لعميل

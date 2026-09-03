@@ -2,8 +2,10 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\WorkType;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Enum;
 
 class UserRequest extends FormRequest
 {
@@ -47,6 +49,8 @@ class UserRequest extends FormRequest
                 'max:15',
                 Rule::unique('users', 'phone')->ignore($userId), // منع تكرار رقم الهاتف مع استثناء المستخدم الحالي عند التعديل
             ],
+
+            'work_type' => ['required', new Enum(WorkType::class)],
 
             'role' => 'required|in:manager,employee',
 
