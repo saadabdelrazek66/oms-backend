@@ -6,15 +6,26 @@ use App\Http\Controllers\Controller;
 use App\Models\ContentPlan;
 use App\Models\PlanPost;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class PlanPostController extends Controller
 {
     // 1. جلب جميع محتويات الخطة
     public function index(ContentPlan $plan)
     {
-        // نجلب المنشورات مع أسماء المصمم والمراجع لعرضهم في الجدول
-        $posts = $plan->posts()->with(['designer:id,name', 'reviewer:id,name'])->get();
-        return response()->json(['data' => $posts]);
+        $posts = $plan->posts()->get();
+
+        // التحقق مما إذا كان المستخدم الحالي هو "مسئول" لهذه الخطة
+        $isResponsible = DB::table('content_plan_user')
+            ->where('content_plan_id', $plan->id)
+            ->where('user_id', auth()->id())
+            ->where('task_role', 'responsible')
+            ->exists();
+
+        return response()->json([
+            'data' => $posts,
+            'is_responsible' => $isResponsible // إرسال الحالة للفرونت إند
+        ]);
     }
 
     // 2. إضافة صف جديد لليوم الواحد (في حالة أراد العميل نشر أكثر من بوست في نفس اليوم)
@@ -37,25 +48,23 @@ class PlanPostController extends Controller
         ]);
     }
 
-    // 1. التحديث الفوري المباشر (Inline Update) مع حماية حالة النشر
+    // 1. التحديث الفوري (Inline Update) - مع منع النشر قبل إجماع المراجعين واعتماد المدير
     public function update(Request $request, PlanPost $post)
     {
-        // اللوجيك الأمني: منع النشر إذا لم تكتمل الموافقتين
         if ($request->has('actual_publish_status') && $request->actual_publish_status === 'تم النشر') {
             if ($post->review_status !== 'معتمد' || $post->manager_review_status !== 'معتمد') {
                 return response()->json([
-                    'message' => 'لا يمكن نشر المنشور قبل الحصول على موافقة المراجع واعتماد المدير النهائي.'
-                ], 403); // 403 يعني ممنوع
+                    'message' => 'لا يمكن نشر المنشور قبل الحصول على موافقة جميع المراجعين واعتماد المدير النهائي.'
+                ], 403);
             }
         }
 
-        // إذا كانت الأمور سليمة، احفظ التعديل
         $post->update($request->all());
 
         return response()->json(['message' => 'تم الحفظ', 'data' => $post]);
     }
 
-    // 2. دالة المراجعة المزدوجة (للمراجع والمدير)
+    // 2. دالة المراجعة المزدوجة (إجماع المراجعين + المدير)
     public function review(Request $request, PlanPost $post)
     {
         $request->validate([
@@ -65,14 +74,13 @@ class PlanPostController extends Controller
         ]);
 
         $user = auth()->user();
-
+        $userId = $user->id;
 
         $isManager = $user->role->value === 'manager';
 
-        // 2. تحديد هل المستخدم هو المراجع المحدد؟ (استخدمنا == بدل === لتفادي مشاكل String/Int)
-        $isReviewer = $user->id == $post->reviewer_id;
-
-        // ---- مسار مراجعة المدير ----
+        // ==========================================
+        // ---- مسار مراجعة المدير (الاعتماد النهائي)
+        // ==========================================
         if ($request->review_type == 'manager') {
             if (!$isManager) {
                 return response()->json(['message' => 'غير مصرح لك. هذه المراجعة خاصة بالمدير فقط.'], 403);
@@ -94,26 +102,69 @@ class PlanPostController extends Controller
             }
         }
 
-        // ---- مسار مراجعة القسم (المراجع) ----
+        // ==========================================
+        // ---- مسار مراجعة القسم (تعدد المراجعين)
+        // ==========================================
         else {
-            // مسموح للمراجع الأصلي، ومسموح للمدير أيضاً
+            $reviewerIds = $post->reviewer_ids ?? [];
+
+            // التحقق: هل المستخدم الحالي من ضمن المراجعين المحددين؟
+            $isReviewer = in_array($userId, $reviewerIds);
+
+            // مسموح للمراجعين، ومسموح للمدير بالتدخل (كصلاحية إشرافية)
             if (!$isReviewer && !$isManager) {
-                return response()->json(['message' => 'غير مصرح لك. هذه المراجعة خاصة بالمراجع المحدد أو المدير.'], 403);
+                return response()->json(['message' => 'غير مصرح لك. لست ضمن قائمة المراجعين لهذا المنشور.'], 403);
             }
 
+            // جلب سجل حالات المراجعين الحالي (مصفوفة تربط كل ID بقراره)
+            $statuses = $post->reviewers_statuses ?? [];
+
+            // --- حالة الرفض ---
             if ($request->status == 'مرفوض') {
+                $statuses[$userId] = 'مرفوض'; // تسجيل رفض هذا الشخص
+
                 $history = $post->rejection_history ?? [];
                 $history[] = [
                     'reason' => $request->reason,
                     'date' => now()->format('Y-m-d H:i:s'),
                     'reviewer_name' => $user->name ?? 'المراجع'
                 ];
+
                 $post->update([
-                    'review_status' => 'مرفوض',
+                    'reviewers_statuses' => $statuses,
+                    'review_status' => 'مرفوض', // رفض المنشور فوراً للقسم
                     'rejection_history' => $history
                 ]);
-            } else {
-                $post->update(['review_status' => 'معتمد']);
+            }
+            // --- حالة الموافقة ---
+            else {
+                $statuses[$userId] = 'معتمد'; // تسجيل موافقة هذا الشخص
+
+                // إذا كان المتدخل هو المدير، يمكنه الموافقة عن الجميع بضغطة واحدة
+                if ($isManager && !$isReviewer) {
+                    $post->update([
+                        'reviewers_statuses' => $statuses,
+                        'review_status' => 'معتمد'
+                    ]);
+                } else {
+                    // خوارزمية الإجماع: فحص ما إذا كان جميع المراجعين وافقوا
+                    $allApproved = true;
+                    if (count($reviewerIds) === 0) {
+                        $allApproved = false;
+                    } else {
+                        foreach ($reviewerIds as $rId) {
+                            if (!isset($statuses[$rId]) || $statuses[$rId] !== 'معتمد') {
+                                $allApproved = false; // وجدنا شخصاً لم يوافق بعد
+                                break;
+                            }
+                        }
+                    }
+
+                    $post->update([
+                        'reviewers_statuses' => $statuses,
+                        'review_status' => $allApproved ? 'معتمد' : 'قيد الانتظار'
+                    ]);
+                }
             }
         }
 
@@ -122,4 +173,5 @@ class PlanPostController extends Controller
             'data' => $post
         ]);
     }
+
 }

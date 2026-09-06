@@ -18,6 +18,8 @@ class PlanPost extends Model
         'ad_platform' => 'array',
         'rejection_history' => 'array',
         'manager_rejection_history' => 'array',
+        'reviewer_ids' => 'array',
+        'reviewers_statuses' => 'array',
     ];
 
     // العلاقات
