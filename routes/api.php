@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ClientController;
 use App\Http\Controllers\Api\ContentPlanController;
 use App\Http\Controllers\Api\DepartmentController;
+use App\Http\Controllers\Api\PlanPostController;
 use App\Http\Controllers\Api\UserController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -18,6 +19,11 @@ Route::post('/login', [AuthController::class, 'login']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
+
+    Route::get('/content-plans/{plan}/posts', [PlanPostController::class, 'index']);
+    Route::post('/content-plans/{plan}/posts', [PlanPostController::class, 'store']);
+    Route::put('/plan-posts/{post}', [PlanPostController::class, 'update']);
+    Route::post('/plan-posts/{post}/review', [PlanPostController::class, 'review']);
 
     Route::get('/departments/list-all', [DepartmentController::class, 'listAll']);
     Route::middleware('role:manager')->group(function () {
@@ -53,4 +59,4 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('credentials/{credential}', [App\Http\Controllers\Api\ClientVaultController::class, 'update']);
         Route::delete('credentials/{credential}', [App\Http\Controllers\Api\ClientVaultController::class, 'destroy']);
     });
-    });
+});

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\CarbonPeriod;
 use Illuminate\Database\Eloquent\Model;
 
 class ContentPlan extends Model
@@ -15,6 +16,8 @@ class ContentPlan extends Model
         'actual_delivery_date',
         'planned_review_date',
         'actual_review_date',
+        'start_date',
+        'end_date',
         'reference_links',
         'final_link',
         'notes',
@@ -27,6 +30,30 @@ class ContentPlan extends Model
         'actual_review_date' => 'datetime',
         'reference_links' => 'array',
     ];
+
+    protected static function booted()
+    {
+        static::created(function ($plan) {
+            if ($plan->start_date && $plan->end_date) {
+                // دالة CarbonPeriod تجلب لنا جميع الأيام بين التاريخين
+                $period = CarbonPeriod::create($plan->start_date, $plan->end_date);
+                $posts = [];
+
+                foreach ($period as $date) {
+                    $posts[] = [
+                        'content_plan_id' => $plan->id,
+                        'target_date' => $date->format('Y-m-d'), // تاريخ اليوم
+                        'actual_publish_status' => 'لم يتم',      // حالة افتراضية
+                        'finance_status' => 'غير ممول',          // حالة افتراضية
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ];
+                }
+
+                PlanPost::insert($posts);
+            }
+        });
+    }
 
     // علاقة الخطة بالموظفين
     public function users()
@@ -51,5 +78,10 @@ class ContentPlan extends Model
     public function clientFollowUps()
     {
         return $this->hasMany(ClientFollowUp::class)->orderBy('created_at', 'desc');
+    }
+
+    public function posts()
+    {
+        return $this->hasMany(PlanPost::class)->orderBy('target_date', 'asc');
     }
 }

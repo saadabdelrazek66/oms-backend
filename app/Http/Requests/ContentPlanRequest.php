@@ -27,8 +27,13 @@ class ContentPlanRequest extends FormRequest
             'plan_type' => 'required|string|min:2|max:100',
             'requires_review' => 'boolean',
 
-            'planned_delivery_date' => 'required|date',
-            'planned_review_date' => 'required_if:requires_review,true|nullable|date',
+            // --- تواريخ بناء الخطة (التحديث الجديد) ---
+            'start_date' => 'required|date',
+            'end_date' => 'required|date|after_or_equal:start_date',
+
+            // تواريخ التسليم والمراجعة
+            'planned_delivery_date' => 'required|date|after_or_equal:start_date',
+            'planned_review_date' => 'required_if:requires_review,true|nullable|date|after_or_equal:start_date',
 
             'responsible_ids' => 'nullable|array',
             'responsible_ids.*' => 'exists:users,id',
@@ -42,7 +47,6 @@ class ContentPlanRequest extends FormRequest
             'final_link' => 'nullable|url|max:500',
             'notes' => 'nullable|string|max:1000',
 
-            // --- التحديث الجديد ---
             // السماح بمصفوفة روابط بحد أقصى 15 رابط
             'reference_links' => 'nullable|array|max:15',
             // التأكد أن كل عنصر داخل المصفوفة هو رابط حقيقي
@@ -59,11 +63,20 @@ class ContentPlanRequest extends FormRequest
             'plan_type.required' => 'نوع الخطة مطلوب.',
             'plan_type.max' => 'نوع الخطة طويل جداً.',
 
+            // --- رسائل تواريخ الخطة ---
+            'start_date.required' => 'تاريخ بداية الخطة مطلوب لبناء الجدول.',
+            'start_date.date' => 'صيغة تاريخ البداية غير صحيحة.',
+            'end_date.required' => 'تاريخ نهاية الخطة مطلوب لبناء الجدول.',
+            'end_date.date' => 'صيغة تاريخ النهاية غير صحيحة.',
+            'end_date.after_or_equal' => 'تاريخ النهاية لا يمكن أن يكون قبل تاريخ البداية.',
+
             'planned_delivery_date.required' => 'موعد التسليم النهائي مطلوب.',
             'planned_delivery_date.date' => 'صيغة تاريخ التسليم غير صحيحة.',
+            'planned_delivery_date.after_or_equal' => 'موعد التسليم لا يمكن أن يكون قبل تاريخ بداية الخطة.',
 
             'planned_review_date.required_if' => 'موعد إنهاء المراجعة مطلوب طالما تم تفعيل خيار المراجعة الداخلية.',
             'planned_review_date.date' => 'صيغة تاريخ المراجعة غير صحيحة.',
+            'planned_review_date.after_or_equal' => 'موعد المراجعة لا يمكن أن يكون قبل تاريخ بداية الخطة.',
 
             'reviewer_ids.required_if' => 'يرجى تحديد مراجع واحد على الأقل طالما تم تفعيل خيار المراجعة الداخلية.',
 
@@ -74,7 +87,6 @@ class ContentPlanRequest extends FormRequest
             'final_link.url' => 'رابط البلان غير صالح (تأكد أنه يبدأ بـ http:// أو https://).',
             'notes.max' => 'الملاحظات طويلة جداً (الحد الأقصى 1000 حرف).',
 
-            // --- رسائل التحديث الجديد ---
             'reference_links.array' => 'الروابط المرجعية يجب أن تكون قائمة.',
             'reference_links.max' => 'لا يمكنك إضافة أكثر من 15 رابط مرجعي للخطة الواحدة.',
             'reference_links.*.required' => 'رابط المرجع لا يمكن أن يكون فارغاً.',
