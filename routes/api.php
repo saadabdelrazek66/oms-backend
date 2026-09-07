@@ -59,4 +59,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('credentials/{credential}', [App\Http\Controllers\Api\ClientVaultController::class, 'update']);
         Route::delete('credentials/{credential}', [App\Http\Controllers\Api\ClientVaultController::class, 'destroy']);
     });
+
+    Route::post('/plan-posts/{post}/resubmit', [PlanPostController::class, 'resubmit']);
+    Route::post('/plan-posts/{post}/start-execution', [PlanPostController::class, 'startExecution']);
 });
