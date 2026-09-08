@@ -20,6 +20,7 @@ class PlanPost extends Model
         'execution_started_at' => 'datetime',
         'department_approved_at' => 'datetime',
         'manager_approved_at' => 'datetime',
+        'published_links' => 'array',
         'rejection_history' => 'array',
         'manager_rejection_history' => 'array',
         'reviewer_ids' => 'array',

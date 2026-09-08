@@ -78,11 +78,53 @@ class PlanPostController extends Controller
             }
         }
 
-        // --- 3. حماية النشر (منع النشر قبل إجماع المراجعين واعتماد المدير) ---
+        // --- 1. حماية تعديل الروابط (للمدير فقط بعد إضافتها أول مرة) ---
+        if ($request->has('published_links')) {
+            $existingLinks = $post->published_links;
+            // فحص إذا كان هناك روابط فعلية محفوظة مسبقاً
+            $hasExistingLinks = is_array($existingLinks) && count(array_filter($existingLinks)) > 0;
+            $isManager = auth()->user()->role->value === 'manager'; // تأكد من طريقة التحقق من دور المدير في نظامك
+
+            // إذا كان هناك روابط والمستخدم ليس مديراً، نرفض التعديل
+            if ($hasExistingLinks && !$isManager) {
+                return response()->json([
+                    'message' => 'عذراً، الروابط مضافة مسبقاً. التعديل عليها مسموح للمدير فقط لحماية البيانات.'
+                ], 403);
+            }
+        }
+
+        // --- 2. حماية النشر (إجبار إدخال روابط لـ *جميع* المنصات المحددة) ---
         if ($request->has('actual_publish_status') && $request->actual_publish_status === 'تم النشر') {
+
+            // أ. التأكد من الإعتماد النهائي أولاً
             if ($post->review_status !== 'معتمد' || $post->manager_review_status !== 'معتمد') {
                 return response()->json([
                     'message' => 'لا يمكن نشر المنشور قبل الحصول على موافقة جميع المراجعين واعتماد المدير النهائي.'
+                ], 403);
+            }
+
+            // ب. جلب الروابط (سواء القادمة الآن أو المحفوظة سابقاً)
+            $links = $request->has('published_links') ? $request->published_links : $post->published_links;
+            $links = is_array($links) ? $links : [];
+
+            // ج. جلب منصات النشر المطلوبة لهذا المنشور
+            $platforms = is_array($post->publishing_platform) ? $post->publishing_platform : json_decode($post->publishing_platform, true);
+            $platforms = is_array($platforms) ? $platforms : [];
+
+            // د. مطابقة المنصات بالروابط
+            $missingPlatforms = [];
+            foreach ($platforms as $platform) {
+                // إذا كانت المنصة غير موجودة في الروابط، أو قيمتها فارغة
+                if (!isset($links[$platform]) || trim($links[$platform]) === '') {
+                    $missingPlatforms[] = $platform;
+                }
+            }
+
+            // إذا كان هناك منصات ناقصة، نرفض النشر ونخبره بها
+            if (count($missingPlatforms) > 0) {
+                $missingStr = implode('، ', $missingPlatforms);
+                return response()->json([
+                    'message' => "لا يمكن إتمام النشر! يرجى إضافة روابط المنصات التالية: {$missingStr}"
                 ], 403);
             }
         }
