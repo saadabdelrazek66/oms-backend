@@ -62,4 +62,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/plan-posts/{post}/resubmit', [PlanPostController::class, 'resubmit']);
     Route::post('/plan-posts/{post}/start-execution', [PlanPostController::class, 'startExecution']);
+
+    Route::get('/user-tasks', [PlanPostController::class, 'getUserTasks']);
 });

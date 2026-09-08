@@ -222,9 +222,24 @@ class PlanPostController extends Controller
             }
         }
 
+        // ... (باقي كود دالة المراجعة والـ update السابق كما هو) ...
+
+        // --- توليد إشعارات الواتساب بناءً على النتيجة النهائية للعملية ---
         $whatsappPayload = null;
+
         if ($request->status === 'مرفوض') {
+            // حالة الرفض (من المراجع أو المدير) ترسل رسالة تعديل للمنفذ
             $whatsappPayload = $this->generateWhatsAppPayload('rejected', $post);
+        } else {
+            // حالة الموافقة: نتحقق مما إذا كانت الموافقة أدت لاعتماد نهائي
+            if ($request->review_type == 'manager' && $post->manager_review_status === 'معتمد') {
+                // الاعتماد النهائي للمدير
+                $whatsappPayload = $this->generateWhatsAppPayload('manager_approved', $post);
+            }
+            elseif ($request->review_type == 'reviewer' && $post->review_status === 'معتمد') {
+                // اكتمال إجماع القسم (أو اعتماد إشرافي من المدير بالنيابة عن القسم)
+                $whatsappPayload = $this->generateWhatsAppPayload('department_approved', $post);
+            }
         }
 
         return response()->json([
@@ -344,6 +359,7 @@ class PlanPostController extends Controller
         ]);
     }
 
+
     // ==========================================
     // ---- دالة تجهيز إشعارات الواتساب (WhatsApp Payload)
     // ==========================================
@@ -356,16 +372,24 @@ class PlanPostController extends Controller
         ];
 
         // 1. جلب رقم المدير (لاستخدامه كـ CC دائماً)
-        // افترضنا أن طريقة التعرف على المدير هي أن الـ role يساوي 'manager'
-        $manager = \App\Models\User::where('role', 'manager')->first();
+        $manager = \App\Models\User::where('role', 'manager')->first(); // أو حسب طريقة تعريف المدير لديك
         if ($manager && $manager->phone) {
             $payload['manager_phone'] = $manager->phone;
         }
 
+        // --- استعلامات مساعدة لبعض الحالات ---
+        $designer = \App\Models\User::find($post->designer_id);
+
+        // جلب مسئول الخطة (عن طريق جدول content_plan_user)
+        $responsibleRecord = \Illuminate\Support\Facades\DB::table('content_plan_user')
+            ->where('content_plan_id', $post->content_plan_id)
+            ->where('task_role', 'responsible')
+            ->first();
+        $responsibleUser = $responsibleRecord ? \App\Models\User::find($responsibleRecord->user_id) : null;
+
         // 2. صياغة الرسالة وتحديد المستلمين بناءً على الحدث
         switch ($event) {
             case 'execution_started':
-                $designer = \App\Models\User::find($post->designer_id);
                 $payload['message'] = "🚀 *تكليف بمهمة جديدة*\nمرحباً {$designer?->name}،\nتم تكليفك بمنشور جديد وبدأ احتساب وقت التنفيذ.\n*الديدلاين:* " . ($post->deadline ? $post->deadline->format('Y-m-d H:i') : 'غير محدد') . "\nيرجى مراجعة لوحة العمل للبدء.";
                 if ($designer && $designer->phone) {
                     $payload['recipients'][] = ['name' => $designer->name, 'phone' => $designer->phone, 'role' => 'المنفذ'];
@@ -383,7 +407,6 @@ class PlanPostController extends Controller
                 break;
 
             case 'rejected':
-                $designer = \App\Models\User::find($post->designer_id);
                 $payload['message'] = "❌ *مطلوب تعديلات*\nمرحباً {$designer?->name}،\nتم رفض المنشور وإعادته إليك لتصحيح بعض الملاحظات.\nيرجى فتح اللوحة والاطلاع على (سجل الرفض) لمعرفة التفاصيل.";
                 if ($designer && $designer->phone) {
                     $payload['recipients'][] = ['name' => $designer->name, 'phone' => $designer->phone, 'role' => 'المنفذ'];
@@ -399,9 +422,112 @@ class PlanPostController extends Controller
                     }
                 }
                 break;
+
+            // ---- الحالات الجديدة (الموافقة والاعتماد) ----
+            case 'department_approved':
+                $payload['message'] = "🎉 *تمت الموافقة المبدئية*\nمرحباً،\nتمت الموافقة على المنشور من قبل جميع المراجعين (موافقة القسم). وهو الآن في انتظار الاعتماد النهائي من المدير.\nعمل رائع! 👏";
+                if ($designer && $designer->phone) {
+                    $payload['recipients'][] = ['name' => $designer->name, 'phone' => $designer->phone, 'role' => 'المنفذ'];
+                }
+                if ($responsibleUser && $responsibleUser->phone && $responsibleUser->id !== $designer?->id) {
+                    $payload['recipients'][] = ['name' => $responsibleUser->name, 'phone' => $responsibleUser->phone, 'role' => 'مسئول الخطة'];
+                }
+                break;
+
+            case 'manager_approved':
+                $payload['message'] = "🌟 *تم الاعتماد النهائي*\nمرحباً،\nتم اعتماد المنشور نهائياً من قبل المدير وهو جاهز للنشر أو الجدولة.\nتسلم إيديكم جميعاً! 🚀";
+                if ($designer && $designer->phone) {
+                    $payload['recipients'][] = ['name' => $designer->name, 'phone' => $designer->phone, 'role' => 'المنفذ'];
+                }
+                if ($responsibleUser && $responsibleUser->phone && $responsibleUser->id !== $designer?->id) {
+                    $payload['recipients'][] = ['name' => $responsibleUser->name, 'phone' => $responsibleUser->phone, 'role' => 'مسئول الخطة'];
+                }
+                break;
         }
 
         return $payload;
     }
 
+
+    // ==========================================
+    // ---- دالة جلب مهام الموظفين (Workspace) مع الفلاتر والـ Pagination
+    // ==========================================
+    public function getUserTasks(Request $request)
+    {
+        $user = auth()->user();
+        $isManager = $user->role->value === 'manager';
+
+        // --- 1. اللوجيك الأمني لتحديد الموظف المستهدف ---
+        $targetUserId = ($isManager && $request->filled('user_id')) ? (int)$request->user_id : $user->id;
+
+        // --- 2. بناء الاستعلام الأساسي للأدوار ---
+        $query = PlanPost::where(function($q) use ($targetUserId) {
+            $q->where('designer_id', $targetUserId)
+                ->orWhereJsonContains('reviewer_ids', (string)$targetUserId)
+                ->orWhereJsonContains('reviewer_ids', (int)$targetUserId);
+        });
+
+        // --- 3. تطبيق الفلاتر (Filters) ---
+        // فلتر موقف التسليم
+        if ($request->filled('delivery_status')) {
+            if ($request->delivery_status === 'delivered') {
+                $query->whereNotNull('delivered_at');
+            } elseif ($request->delivery_status === 'pending') {
+                $query->whereNull('delivered_at');
+            }
+        }
+
+        // فلتر حالة المراجعة
+        if ($request->filled('review_status')) {
+            $query->where('review_status', $request->review_status);
+        }
+
+        // فلتر الديدلاين (تاريخ الانتهاء قبل أو في اليوم المحدد)
+        if ($request->filled('deadline_before')) {
+            $query->whereDate('deadline', '<=', $request->deadline_before);
+        }
+
+        // فلتر خطة المحتوى (مهام تابعة لخطة معينة)
+        if ($request->filled('content_plan_id')) {
+            $query->where('content_plan_id', $request->content_plan_id);
+        }
+
+        // --- 4. التقسيم لصفحات (Pagination) ---
+        $tasks = $query->orderByRaw('deadline IS NULL')
+            ->orderBy('deadline', 'asc')
+            ->paginate(10);
+
+        // --- 5. جلب أسماء الأطراف بذكاء للمهام المعروضة فقط ---
+        $userIds = collect();
+        foreach ($tasks->items() as $task) {
+            if ($task->designer_id) $userIds->push($task->designer_id);
+            if (!empty($task->reviewer_ids) && is_array($task->reviewer_ids)) {
+                foreach ($task->reviewer_ids as $rId) $userIds->push($rId);
+            }
+        }
+
+        $userIds = $userIds->unique()->filter();
+        $usersMap = \App\Models\User::whereIn('id', $userIds)->pluck('name', 'id');
+
+        // --- 6. حقن الأسماء داخل كائن الـ Pagination ---
+        $tasks->getCollection()->transform(function ($task) use ($usersMap) {
+            $task->designer_name = $usersMap[$task->designer_id] ?? 'غير معروف';
+            $revNames = [];
+            if (!empty($task->reviewer_ids) && is_array($task->reviewer_ids)) {
+                foreach ($task->reviewer_ids as $rId) {
+                    if (isset($usersMap[$rId])) $revNames[] = $usersMap[$rId];
+                }
+            }
+            $task->reviewer_names = $revNames;
+
+            return $task;
+        });
+
+        return response()->json([
+            'message' => 'تم جلب المهام بنجاح',
+            'target_user_id' => $targetUserId,
+            'is_manager' => $isManager,
+            'tasks' => $tasks
+        ]);
+    }
 }
