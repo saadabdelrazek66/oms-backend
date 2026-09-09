@@ -62,6 +62,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/plan-posts/{post}/resubmit', [PlanPostController::class, 'resubmit']);
     Route::post('/plan-posts/{post}/start-execution', [PlanPostController::class, 'startExecution']);
+    Route::delete('/plan-posts/{post}', [App\Http\Controllers\Api\PlanPostController::class, 'destroy']);
+    Route::post('/plan-posts/{post}/unlock-field', [App\Http\Controllers\Api\PlanPostController::class, 'unlockField']);
 
     Route::get('/user-tasks', [PlanPostController::class, 'getUserTasks']);
 });

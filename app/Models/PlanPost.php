@@ -25,6 +25,7 @@ class PlanPost extends Model
         'manager_rejection_history' => 'array',
         'reviewer_ids' => 'array',
         'reviewers_statuses' => 'array',
+        'locked_fields' => 'array',
     ];
 
     // العلاقات
@@ -36,5 +37,9 @@ class PlanPost extends Model
     }
     public function reviewer() {
         return $this->belongsTo(User::class, 'reviewer_id');
+    }
+    public function contentPlan()
+    {
+        return $this->belongsTo(ContentPlan::class, 'content_plan_id');
     }
 }

@@ -47,8 +47,6 @@ class PlanPostController extends Controller
             'data' => $post->load(['designer:id,name', 'reviewer:id,name'])
         ]);
     }
-
-    // 1. التحديث الفوري (Inline Update) مع قفل المراجعة الذكي وتصفير الأوقات
     public function update(Request $request, PlanPost $post)
     {
         $user = auth()->user();
@@ -61,7 +59,6 @@ class PlanPostController extends Controller
             $isRejected = ($post->review_status === 'مرفوض' || $post->manager_review_status === 'مرفوض');
             $isFullyApproved = ($post->review_status === 'معتمد' && $post->manager_review_status === 'معتمد');
 
-            // إذا تم التسليم، ولم يُرفض، ولم يتم اعتماده كلياً (أي أنه يقرأه المراجعون الآن)
             if ($isDelivered && !$isRejected && !$isFullyApproved) {
                 return response()->json([
                     'message' => 'عفواً، المنشور قيد المراجعة حالياً. تم قفل المنشور ولا يمكنك التعديل عليه إلا في حال تم رفضه.'
@@ -78,14 +75,11 @@ class PlanPostController extends Controller
             }
         }
 
-        // --- 1. حماية تعديل الروابط (للمدير فقط بعد إضافتها أول مرة) ---
+        // --- 3. حماية تعديل الروابط (للمدير فقط بعد إضافتها أول مرة) ---
         if ($request->has('published_links')) {
             $existingLinks = $post->published_links;
-            // فحص إذا كان هناك روابط فعلية محفوظة مسبقاً
             $hasExistingLinks = is_array($existingLinks) && count(array_filter($existingLinks)) > 0;
-            $isManager = auth()->user()->role->value === 'manager'; // تأكد من طريقة التحقق من دور المدير في نظامك
 
-            // إذا كان هناك روابط والمستخدم ليس مديراً، نرفض التعديل
             if ($hasExistingLinks && !$isManager) {
                 return response()->json([
                     'message' => 'عذراً، الروابط مضافة مسبقاً. التعديل عليها مسموح للمدير فقط لحماية البيانات.'
@@ -93,34 +87,28 @@ class PlanPostController extends Controller
             }
         }
 
-        // --- 2. حماية النشر (إجبار إدخال روابط لـ *جميع* المنصات المحددة) ---
+        // --- 4. حماية النشر (إجبار إدخال روابط لـ *جميع* المنصات المحددة) ---
         if ($request->has('actual_publish_status') && $request->actual_publish_status === 'تم النشر') {
 
-            // أ. التأكد من الإعتماد النهائي أولاً
             if ($post->review_status !== 'معتمد' || $post->manager_review_status !== 'معتمد') {
                 return response()->json([
                     'message' => 'لا يمكن نشر المنشور قبل الحصول على موافقة جميع المراجعين واعتماد المدير النهائي.'
                 ], 403);
             }
 
-            // ب. جلب الروابط (سواء القادمة الآن أو المحفوظة سابقاً)
             $links = $request->has('published_links') ? $request->published_links : $post->published_links;
             $links = is_array($links) ? $links : [];
 
-            // ج. جلب منصات النشر المطلوبة لهذا المنشور
             $platforms = is_array($post->publishing_platform) ? $post->publishing_platform : json_decode($post->publishing_platform, true);
             $platforms = is_array($platforms) ? $platforms : [];
 
-            // د. مطابقة المنصات بالروابط
             $missingPlatforms = [];
             foreach ($platforms as $platform) {
-                // إذا كانت المنصة غير موجودة في الروابط، أو قيمتها فارغة
                 if (!isset($links[$platform]) || trim($links[$platform]) === '') {
                     $missingPlatforms[] = $platform;
                 }
             }
 
-            // إذا كان هناك منصات ناقصة، نرفض النشر ونخبره بها
             if (count($missingPlatforms) > 0) {
                 $missingStr = implode('، ', $missingPlatforms);
                 return response()->json([
@@ -129,8 +117,9 @@ class PlanPostController extends Controller
             }
         }
 
-        // --- 4. تجهيز البيانات وتصفير الأوقات في حالة التراجع اليدوي ---
+        // --- 5. تجهيز البيانات وتطبيق القفل الذكي (Manager Override Lock) ---
         $data = $request->all();
+
         if (isset($data['review_status']) && $data['review_status'] === 'قيد الانتظار') {
             $data['department_approved_at'] = null; // تصفير وقت القسم
         }
@@ -138,12 +127,86 @@ class PlanPostController extends Controller
             $data['manager_approved_at'] = null; // تصفير وقت المدير
         }
 
-        // حفظ التعديلات
-        $post->update($data);
+        // تعبئة الموديل بالبيانات الجديدة (في الذاكرة فقط) لالتقاط التغييرات
+        $post->fill($data);
 
+        // استخراج أسماء الحقول التي تغيرت قيمتها فعلياً
+        $changedFields = array_keys($post->getDirty());
+
+        // التأكد من أن locked_fields مصفوفة
+        $lockedFields = is_array($post->locked_fields) ? $post->locked_fields : (json_decode($post->locked_fields, true) ?? []);
+
+        if (!$isManager) {
+            // الموظف: نتحقق إذا كان يحاول تعديل حقل تم قفله
+            $attemptedToChangeLocked = array_intersect($changedFields, $lockedFields);
+
+            if (!empty($attemptedToChangeLocked)) {
+                return response()->json([
+                    'message' => 'عذراً، لا يمكنك التعديل لأن المدير قام بتثبيت واعتماد بعض هذه الحقول مسبقاً 🔒'
+                ], 403);
+            }
+        } else {
+            // المدير: أي حقل يغيره، يتم إضافته فوراً لقائمة القفل
+            if (!empty($changedFields)) {
+                // استثناء حقول دورة العمل المتغيرة باستمرار من القفل الدائم
+                $excludedFromLock = [
+                    'review_status',
+                    'manager_review_status',
+                    'department_approved_at',
+                    'manager_approved_at',
+                    'actual_publish_status',
+                    'delivered_at'
+                ];
+
+                $fieldsToLock = array_diff($changedFields, $excludedFromLock);
+                $lockedFields = array_values(array_unique(array_merge($lockedFields, $fieldsToLock)));
+
+                $post->locked_fields = $lockedFields;
+            }
+        }
+
+        // رصد تغير حالة الرفض باستخدام getOriginal للبيانات المحفوظة مسبقاً
+        $wasManagerRejected = $post->getOriginal('manager_review_status') === 'مرفوض';
+        $isManagerRejecting = $post->manager_review_status === 'مرفوض';
+        $shouldNotifyRejection = !$wasManagerRejected && $isManagerRejecting;
+
+        // --- 6. حفظ التعديلات نهائياً ---
+        $post->save(); // نستخدم save لأننا استخدمنا fill مسبقاً
+
+        // --- 7. توليد حمولة الواتساب (WhatsApp Payload) ---
         $whatsappPayload = null;
+
         if ($request->has('delivered_at') && !is_null($request->delivered_at)) {
             $whatsappPayload = $this->generateWhatsAppPayload('delivered', $post);
+
+        } elseif ($shouldNotifyRejection) {
+            $targetUserIds = [];
+
+            if ($post->designer_id) $targetUserIds[] = $post->designer_id;
+
+            $reviewers = is_array($post->reviewer_ids) ? $post->reviewer_ids : (json_decode($post->reviewer_ids, true) ?? []);
+            if (is_array($reviewers)) {
+                $targetUserIds = array_merge($targetUserIds, $reviewers);
+            }
+
+            if ($post->responsible_id) {
+                $targetUserIds[] = $post->responsible_id;
+            } else {
+                $post->loadMissing('contentPlan');
+                if ($post->contentPlan && $post->contentPlan->responsible_id) {
+                    $targetUserIds[] = $post->contentPlan->responsible_id;
+                }
+            }
+
+            $targetUserIds = array_unique(array_filter($targetUserIds));
+
+            $phoneNumbers = \App\Models\User::whereIn('id', $targetUserIds)
+                ->whereNotNull('phone')
+                ->pluck('phone')
+                ->unique()
+                ->toArray();
+
+            $whatsappPayload = $this->generateWhatsAppPayload('rejected', $post, $phoneNumbers);
         }
 
         return response()->json([
@@ -409,38 +472,53 @@ class PlanPostController extends Controller
     {
         $payload = [
             'message' => '',
-            'recipients' => [], // مصفوفة لتخزين المستلمين (الاسم، الهاتف، الدور)
+            'recipients' => [],
             'manager_phone' => null
         ];
 
         // 1. جلب رقم المدير (لاستخدامه كـ CC دائماً)
-        $manager = \App\Models\User::where('role', 'manager')->first(); // أو حسب طريقة تعريف المدير لديك
+        $manager = \App\Models\User::where('role', 'manager')->first();
         if ($manager && $manager->phone) {
             $payload['manager_phone'] = $manager->phone;
         }
 
-        // --- استعلامات مساعدة لبعض الحالات ---
+        // --- استعلامات مساعدة ---
         $designer = \App\Models\User::find($post->designer_id);
 
-        // جلب مسئول الخطة (عن طريق جدول content_plan_user)
         $responsibleRecord = \Illuminate\Support\Facades\DB::table('content_plan_user')
             ->where('content_plan_id', $post->content_plan_id)
             ->where('task_role', 'responsible')
             ->first();
         $responsibleUser = $responsibleRecord ? \App\Models\User::find($responsibleRecord->user_id) : null;
 
+        // --- تجهيز "مربع التفاصيل" الموحد لجميع الرسائل ---
+        $planName = $post->contentPlan?->name ?? 'غير محدد';
+        $postType = $post->post_type ?? 'غير محدد';
+
+        // معالجة تاريخ النشر المخطط (أو الديدلاين كبديل إذا لم يكن متوفراً)
+        $plannedDate = $post->target_date ?? $post->deadline;
+        $plannedDateStr = 'غير محدد';
+        if ($plannedDate) {
+            $plannedDateStr = is_string($plannedDate) ? $plannedDate : $plannedDate->format('Y-m-d');
+        }
+
+        $postContext = "\n\n📌 *تفاصيل المنشور:*\n";
+        $postContext .= "▪️ الخطة: {$planName}\n";
+        $postContext .= "▪️ النوع: {$postType}\n";
+        $postContext .= "▪️ الموعد المخطط: {$plannedDateStr}\n\n";
+
         // 2. صياغة الرسالة وتحديد المستلمين بناءً على الحدث
         switch ($event) {
             case 'execution_started':
-                $payload['message'] = "🚀 *تكليف بمهمة جديدة*\nمرحباً {$designer?->name}،\nتم تكليفك بمنشور جديد وبدأ احتساب وقت التنفيذ.\n*الديدلاين:* " . ($post->deadline ? $post->deadline->format('Y-m-d H:i') : 'غير محدد') . "\nيرجى مراجعة لوحة العمل للبدء.";
+                $payload['message'] = "🚀 *تكليف بمهمة جديدة*\nمرحباً {$designer?->name}،\nتم تكليفك بمنشور جديد وبدأ احتساب وقت التنفيذ." . $postContext . "يرجى مراجعة لوحة العمل للبدء.";
                 if ($designer && $designer->phone) {
                     $payload['recipients'][] = ['name' => $designer->name, 'phone' => $designer->phone, 'role' => 'المنفذ'];
                 }
                 break;
 
             case 'delivered':
-                $reviewers = \App\Models\User::whereIn('id', $post->reviewer_ids ?? [])->get();
-                $payload['message'] = "✅ *طلب مراجعة منشور*\nمرحباً،\nقام المنفذ بتسليم المنشور وهو جاهز الآن لمراجعتك.\n*روابط التسليم:* {$post->delivery_links}";
+                $reviewers = \App\Models\User::whereIn('id', is_array($post->reviewer_ids) ? $post->reviewer_ids : (json_decode($post->reviewer_ids, true) ?? []))->get();
+                $payload['message'] = "✅ *طلب مراجعة منشور*\nمرحباً،\nقام المنفذ بتسليم المنشور وهو جاهز الآن لمراجعتك." . $postContext . "*روابط التسليم:* {$post->delivery_links}";
                 foreach ($reviewers as $rev) {
                     if ($rev->phone) {
                         $payload['recipients'][] = ['name' => $rev->name, 'phone' => $rev->phone, 'role' => 'المراجع'];
@@ -449,15 +527,33 @@ class PlanPostController extends Controller
                 break;
 
             case 'rejected':
-                $payload['message'] = "❌ *مطلوب تعديلات*\nمرحباً {$designer?->name}،\nتم رفض المنشور وإعادته إليك لتصحيح بعض الملاحظات.\nيرجى فتح اللوحة والاطلاع على (سجل الرفض) لمعرفة التفاصيل.";
+                $payload['message'] = "❌ *تنبيه رفض منشور*\nمرحباً،\nعذراً، تم رفض المنشور من قِبل المدير وإعادته لتصحيح الملاحظات." . $postContext . "يرجى من الأطراف المعنية (المنفذ والمراجعين) الاطلاع على (سجل الرفض) في اللوحة للبدء في التعديل فوراً.";
+
+                $notifiedIds = [];
                 if ($designer && $designer->phone) {
                     $payload['recipients'][] = ['name' => $designer->name, 'phone' => $designer->phone, 'role' => 'المنفذ'];
+                    $notifiedIds[] = $designer->id;
+                }
+
+                $reviewerIds = is_array($post->reviewer_ids) ? $post->reviewer_ids : (json_decode($post->reviewer_ids, true) ?? []);
+                if (count($reviewerIds) > 0) {
+                    $reviewers = \App\Models\User::whereIn('id', $reviewerIds)->get();
+                    foreach ($reviewers as $rev) {
+                        if ($rev->phone && !in_array($rev->id, $notifiedIds)) {
+                            $payload['recipients'][] = ['name' => $rev->name, 'phone' => $rev->phone, 'role' => 'المراجع'];
+                            $notifiedIds[] = $rev->id;
+                        }
+                    }
+                }
+
+                if ($responsibleUser && $responsibleUser->phone && !in_array($responsibleUser->id, $notifiedIds)) {
+                    $payload['recipients'][] = ['name' => $responsibleUser->name, 'phone' => $responsibleUser->phone, 'role' => 'مسئول الخطة'];
                 }
                 break;
 
             case 'resubmitted':
-                $reviewers = \App\Models\User::whereIn('id', $post->reviewer_ids ?? [])->get();
-                $payload['message'] = "🔄 *إعادة إرسال للمراجعة*\nمرحباً،\nقام المنفذ بتصحيح الملاحظات وإعادة إرسال المنشور لمراجعته من جديد.\n*روابط التسليم:* {$post->delivery_links}";
+                $reviewers = \App\Models\User::whereIn('id', is_array($post->reviewer_ids) ? $post->reviewer_ids : (json_decode($post->reviewer_ids, true) ?? []))->get();
+                $payload['message'] = "🔄 *إعادة إرسال للمراجعة*\nمرحباً،\nقام المنفذ بتصحيح الملاحظات وإعادة إرسال المنشور لمراجعته من جديد." . $postContext . "*روابط التسليم:* {$post->delivery_links}";
                 foreach ($reviewers as $rev) {
                     if ($rev->phone) {
                         $payload['recipients'][] = ['name' => $rev->name, 'phone' => $rev->phone, 'role' => 'المراجع'];
@@ -465,9 +561,8 @@ class PlanPostController extends Controller
                 }
                 break;
 
-            // ---- الحالات الجديدة (الموافقة والاعتماد) ----
             case 'department_approved':
-                $payload['message'] = "🎉 *تمت الموافقة المبدئية*\nمرحباً،\nتمت الموافقة على المنشور من قبل جميع المراجعين (موافقة القسم). وهو الآن في انتظار الاعتماد النهائي من المدير.\nعمل رائع! 👏";
+                $payload['message'] = "🎉 *تمت الموافقة المبدئية*\nمرحباً،\nتمت الموافقة على المنشور من قبل جميع المراجعين (موافقة القسم). وهو الآن في انتظار الاعتماد النهائي من المدير." . $postContext . "عمل رائع! 👏";
                 if ($designer && $designer->phone) {
                     $payload['recipients'][] = ['name' => $designer->name, 'phone' => $designer->phone, 'role' => 'المنفذ'];
                 }
@@ -477,7 +572,7 @@ class PlanPostController extends Controller
                 break;
 
             case 'manager_approved':
-                $payload['message'] = "🌟 *تم الاعتماد النهائي*\nمرحباً،\nتم اعتماد المنشور نهائياً من قبل المدير وهو جاهز للنشر أو الجدولة.\nتسلم إيديكم جميعاً! 🚀";
+                $payload['message'] = "🌟 *تم الاعتماد النهائي*\nمرحباً،\nتم اعتماد المنشور نهائياً من قبل المدير وهو جاهز للنشر أو الجدولة." . $postContext . "تسلم إيديكم جميعاً! 🚀";
                 if ($designer && $designer->phone) {
                     $payload['recipients'][] = ['name' => $designer->name, 'phone' => $designer->phone, 'role' => 'المنفذ'];
                 }
@@ -492,7 +587,7 @@ class PlanPostController extends Controller
 
 
     // ==========================================
-    // ---- دالة جلب مهام الموظفين (Workspace) مع الفلاتر والـ Pagination
+    // ---- دالة جلب مهام الموظفين (Workspace) مع الفلاتر الذكية والشارات
     // ==========================================
     public function getUserTasks(Request $request)
     {
@@ -502,44 +597,74 @@ class PlanPostController extends Controller
         // --- 1. اللوجيك الأمني لتحديد الموظف المستهدف ---
         $targetUserId = ($isManager && $request->filled('user_id')) ? (int)$request->user_id : $user->id;
 
-        // --- 2. بناء الاستعلام الأساسي للأدوار ---
-        $query = PlanPost::where(function($q) use ($targetUserId) {
+        // --- 2. بناء الاستعلام الأساسي للأدوار (مع جلب علاقة الخطة لاسمها) ---
+        $query = PlanPost::with('contentPlan:id,name') // جلب اسم الخطة لتسهيل العرض
+        ->where(function($q) use ($targetUserId) {
             $q->where('designer_id', $targetUserId)
                 ->orWhereJsonContains('reviewer_ids', (string)$targetUserId)
                 ->orWhereJsonContains('reviewer_ids', (int)$targetUserId);
         });
 
-        // --- 3. تطبيق الفلاتر (Filters) ---
-        // فلتر موقف التسليم
+        // --- 3. تطبيق الفلاتر الشاملة (Filters) ---
+
+        // أ. موقف التسليم
         if ($request->filled('delivery_status')) {
-            if ($request->delivery_status === 'delivered') {
-                $query->whereNotNull('delivered_at');
-            } elseif ($request->delivery_status === 'pending') {
-                $query->whereNull('delivered_at');
-            }
+            if ($request->delivery_status === 'delivered') $query->whereNotNull('delivered_at');
+            elseif ($request->delivery_status === 'pending') $query->whereNull('delivered_at');
         }
 
-        // فلتر حالة المراجعة
+        // ب. حالة مراجعة القسم
         if ($request->filled('review_status')) {
             $query->where('review_status', $request->review_status);
         }
 
-        // فلتر الديدلاين (تاريخ الانتهاء قبل أو في اليوم المحدد)
-        if ($request->filled('deadline_before')) {
-            $query->whereDate('deadline', '<=', $request->deadline_before);
+        // ج. حالة مراجعة المدير
+        if ($request->filled('manager_review_status')) {
+            $query->where('manager_review_status', $request->manager_review_status);
         }
 
-        // فلتر خطة المحتوى (مهام تابعة لخطة معينة)
+        // د. حالة النشر الفعلي
+        if ($request->filled('actual_publish_status')) {
+            $query->where('actual_publish_status', $request->actual_publish_status);
+        }
+
+        // هـ. نوع المنشور
+        if ($request->filled('post_type')) {
+            $query->where('post_type', $request->post_type);
+        }
+
+        // و. خطة المحتوى
         if ($request->filled('content_plan_id')) {
             $query->where('content_plan_id', $request->content_plan_id);
         }
 
-        // --- 4. التقسيم لصفحات (Pagination) ---
-        $tasks = $query->orderByRaw('deadline IS NULL')
-            ->orderBy('deadline', 'asc')
-            ->paginate(10);
+        // ز. فلتر النطاق الزمني للديدلاين (من - إلى)
+        if ($request->filled('deadline_from')) {
+            $query->whereDate('deadline', '>=', $request->deadline_from);
+        }
+        if ($request->filled('deadline_to')) {
+            $query->whereDate('deadline', '<=', $request->deadline_to);
+        }
 
-        // --- 5. جلب أسماء الأطراف بذكاء للمهام المعروضة فقط ---
+        // --- 4. الترتيب الذكي (Smart Sorting) ---
+        // الترتيب الافتراضي:
+        // 1. المرفوض أولاً (لأنه يحتاج تعديل فوري)
+        // 2. المهام التي لم تُسلم وتاريخها يقترب
+        // 3. المهام المسلمة في الأسفل
+        $query->orderByRaw("
+            CASE
+                WHEN manager_review_status = 'مرفوض' OR review_status = 'مرفوض' THEN 1
+                WHEN delivered_at IS NULL THEN 2
+                ELSE 3
+            END
+        ")
+            ->orderByRaw('deadline IS NULL') // التي بلا ديدلاين في الأسفل
+            ->orderBy('deadline', 'asc');
+
+        // --- 5. التقسيم لصفحات (Pagination) ---
+        $tasks = $query->paginate(12);
+
+        // --- 6. جلب أسماء الأطراف بذكاء ---
         $userIds = collect();
         foreach ($tasks->items() as $task) {
             if ($task->designer_id) $userIds->push($task->designer_id);
@@ -547,12 +672,14 @@ class PlanPostController extends Controller
                 foreach ($task->reviewer_ids as $rId) $userIds->push($rId);
             }
         }
-
         $userIds = $userIds->unique()->filter();
         $usersMap = \App\Models\User::whereIn('id', $userIds)->pluck('name', 'id');
 
-        // --- 6. حقن الأسماء داخل كائن الـ Pagination ---
-        $tasks->getCollection()->transform(function ($task) use ($usersMap) {
+        // --- 7. حقن البيانات الإضافية والشارات الذكية (Smart Badges) ---
+        $now = \Carbon\Carbon::now();
+
+        $tasks->getCollection()->transform(function ($task) use ($usersMap, $now) {
+            // إضافة الأسماء
             $task->designer_name = $usersMap[$task->designer_id] ?? 'غير معروف';
             $revNames = [];
             if (!empty($task->reviewer_ids) && is_array($task->reviewer_ids)) {
@@ -562,6 +689,42 @@ class PlanPostController extends Controller
             }
             $task->reviewer_names = $revNames;
 
+            // اسم الخطة
+            $task->plan_name = $task->contentPlan ? $task->contentPlan->name : 'خطة غير محددة';
+
+            // --- نظام الشارات الذكية (Badges) ---
+            $badges = [];
+            $isDelivered = !is_null($task->delivered_at);
+            $deadline = $task->deadline ? \Carbon\Carbon::parse($task->deadline) : null;
+
+            // شارة الرفض (الأهم)
+            if ($task->manager_review_status === 'مرفوض' || $task->review_status === 'مرفوض') {
+                $badges[] = ['type' => 'danger', 'text' => 'مرفوض ❌', 'color' => '#dc3545'];
+            }
+            // شارة الاعتماد النهائي
+            elseif ($task->manager_review_status === 'معتمد') {
+                $badges[] = ['type' => 'success', 'text' => 'معتمد 🌟', 'color' => '#198754'];
+            }
+            // شارة قيد المراجعة
+            elseif ($isDelivered) {
+                $badges[] = ['type' => 'info', 'text' => 'قيد المراجعة ⏳', 'color' => '#0dcaf0'];
+            }
+            // شارات المهام الجارية
+            else {
+                if ($deadline) {
+                    if ($deadline->isPast()) {
+                        $badges[] = ['type' => 'danger', 'text' => 'متأخر ⚠️', 'color' => '#dc3545'];
+                    } elseif ($deadline->isToday()) {
+                        $badges[] = ['type' => 'warning', 'text' => 'تسليم اليوم 🔔', 'color' => '#ffc107'];
+                    }
+                }
+                // إذا تم إنشاؤها في آخر 48 ساعة ولم تُسلم بعد
+                if ($task->created_at->diffInHours($now) <= 48) {
+                    $badges[] = ['type' => 'primary', 'text' => 'مهمة جديدة ✨', 'color' => '#0d6efd'];
+                }
+            }
+
+            $task->smart_badges = $badges;
             return $task;
         });
 
@@ -570,6 +733,72 @@ class PlanPostController extends Controller
             'target_user_id' => $targetUserId,
             'is_manager' => $isManager,
             'tasks' => $tasks
+        ]);
+    }
+
+    // ==========================================
+    // ---- دالة حذف منشور (صف) - للمدير فقط
+    // ==========================================
+    public function destroy(PlanPost $post)
+    {
+        $user = auth()->user();
+
+        // --- جدار الحماية: التأكد من أن المستخدم مدير ---
+        // (تأكد من مطابقة طريقة فحص الدور لديك، إذا كانت $user->role فقط أو $user->role->value)
+        if ($user->role->value !== 'manager') {
+            return response()->json([
+                'message' => 'غير مصرح لك بحذف المهام. هذه الصلاحية مخصصة للمدير فقط.'
+            ], 403);
+        }
+
+        try {
+            // تنفيذ عملية الحذف
+            $post->delete();
+
+            return response()->json([
+                'message' => 'تم حذف الصف بنجاح.'
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'حدث خطأ أثناء محاولة الحذف.'
+            ], 500);
+        }
+    }
+
+    // ==========================================
+    // ---- دالة فك القفل عن حقل معين (للمدير فقط)
+    // ==========================================
+    public function unlockField(Request $request, PlanPost $post)
+    {
+        $user = auth()->user();
+
+        // 1. حماية: المدير فقط من يملك المفتاح
+        if ($user->role->value !== 'manager') {
+            return response()->json(['message' => 'غير مصرح لك بفك القفل.'], 403);
+        }
+
+        $fieldName = $request->input('field_name');
+        if (!$fieldName) {
+            return response()->json(['message' => 'اسم الحقل مطلوب.'], 400);
+        }
+
+        // 2. قراءة الحقول المقفولة الحالية
+        $lockedFields = is_array($post->locked_fields) ? $post->locked_fields : (json_decode($post->locked_fields, true) ?? []);
+
+        // 3. إزالة الحقل المستهدف من المصفوفة
+        $lockedFields = array_values(array_filter($lockedFields, function($field) use ($fieldName) {
+            return $field !== $fieldName;
+        }));
+
+        // 4. الحفظ
+        $post->locked_fields = $lockedFields;
+        // نستخدم save صريحة بدون إطلاق أحداث الـ update العادية حتى لا نُرسل إشعارات واتساب بالخطأ
+        $post->saveQuietly();
+
+        return response()->json([
+            'message' => 'تم فك القفل بنجاح 🔓',
+            'locked_fields' => $lockedFields
         ]);
     }
 }
