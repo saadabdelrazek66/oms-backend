@@ -14,4 +14,10 @@ class Department extends Model
             ->withPivot('is_primary')
             ->withTimestamps();
     }
+
+    // المشاريع التابعة لهذا القسم
+    public function projects()
+    {
+        return $this->belongsToMany(Project::class, 'department_project');
+    }
 }

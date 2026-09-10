@@ -104,8 +104,12 @@ class ContentPlanController extends Controller
         $validated = $request->validate([
             'start_date' => 'required|date',
             'end_date' => 'required|date|after_or_equal:start_date',
-            'planned_delivery_date' => 'required|date|after_or_equal:start_date',
-            'planned_review_date' => 'nullable|date|after_or_equal:start_date',
+            'planned_delivery_date' => 'required|date|before_or_equal:start_date',
+            'planned_review_date' => 'nullable|date|before_or_equal:planned_delivery_date',
+        ], [
+            'planned_delivery_date.before_or_equal' => 'موعد التسليم النهائي يجب أن يكون قبل أو مع تاريخ بداية الخطة.',
+            'planned_review_date.before_or_equal' => 'موعد إنهاء المراجعة يجب أن يكون قبل أو مع موعد التسليم النهائي.',
+            'end_date.after_or_equal' => 'تاريخ نهاية الخطة يجب أن يكون بعد أو مع تاريخ البداية.',
         ]);
 
         // 2. استنساخ الخطة (replicate تنسخ البيانات الأساسية فقط بدون الـ ID والعلاقات)
@@ -120,20 +124,22 @@ class ContentPlanController extends Controller
             $newPlan->planned_review_date = $validated['planned_review_date'];
         }
 
-        // تصفير بيانات التنفيذ لأنها خطة جديدة
+        // تصفير بيانات التنفيذ وإعادة الحالة للوضع الافتراضي (استخدام pending بدلاً من قيد التخطيط)
         $newPlan->actual_delivery_date = null;
         $newPlan->actual_review_date = null;
-        $newPlan->status = 'قيد التخطيط'; // إعادة الحالة للوضع الافتراضي
+        $newPlan->status = 'pending';
 
-        // 4. الحفظ (هنا سيتدخل الموديل تلقائياً لتوليد الاسم الجديد وإنشاء أول 3 أيام!)
+        // 4. الحفظ
         $newPlan->save();
 
-        // 5. استنساخ فريق العمل المربوط بالخطة القديمة بنفس أدوارهم
-        $usersToAttach = [];
+        // 5. استنساخ فريق العمل المربوط بالخطة القديمة (بالطريقة الآمنة لتجنب دمج الأدوار)
+        $contentPlan->load('users'); // التأكد من تحميل المستخدمين
         foreach ($contentPlan->users as $teamMember) {
-            $usersToAttach[$teamMember->id] = ['task_role' => $teamMember->pivot->task_role];
+            // استخدام attach بداخل الـ loop لضمان إضافة الشخص حتى لو كان له أكثر من دور
+            $newPlan->users()->attach($teamMember->id, [
+                'task_role' => $teamMember->pivot->task_role
+            ]);
         }
-        $newPlan->users()->attach($usersToAttach);
 
         // تحميل العلاقات لإرسالها للواجهة
         $newPlan->load(['client', 'users']);

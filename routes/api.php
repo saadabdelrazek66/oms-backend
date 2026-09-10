@@ -68,4 +68,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user-tasks', [PlanPostController::class, 'getUserTasks']);
 
     Route::post('/content-plans/{contentPlan}/duplicate', [App\Http\Controllers\Api\ContentPlanController::class, 'duplicate']);
+
+    Route::apiResource('projects', App\Http\Controllers\Api\ProjectController::class);
+    Route::get('/projects/{project}/tasks', [App\Http\Controllers\Api\TaskController::class, 'index']);
+    Route::post('/projects/{project}/tasks', [App\Http\Controllers\Api\TaskController::class, 'store']);
+
+    Route::put('/tasks/{task}', [App\Http\Controllers\Api\TaskController::class, 'update']);
+    Route::patch('/tasks/{task}', [App\Http\Controllers\Api\TaskController::class, 'update']); // PATCH ممتازة للسحب والإفلات
+    Route::delete('/tasks/{task}', [App\Http\Controllers\Api\TaskController::class, 'destroy']);
 });

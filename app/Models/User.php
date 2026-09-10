@@ -63,4 +63,22 @@ class User extends Authenticatable
             ->wherePivot('is_primary', true)
             ->withTimestamps();
     }
+
+    // المشاريع المصرح للمستخدم الدخول إليها
+    public function projects()
+    {
+        return $this->belongsToMany(Project::class, 'project_user');
+    }
+
+    // المهام التي قام المستخدم بإنشائها
+    public function createdTasks()
+    {
+        return $this->hasMany(Task::class, 'created_by');
+    }
+
+    // المهام المسندة إلى المستخدم لتنفيذها
+    public function assignedTasks()
+    {
+        return $this->hasMany(Task::class, 'assigned_to');
+    }
 }
