@@ -89,4 +89,58 @@ class ContentPlanController extends Controller
         $content_plan->update($validated);
         return response()->json(['message' => 'تم تحديث التفاصيل', 'data' => $content_plan]);
     }
+
+    // ==========================================
+    // ---- دالة استنساخ الخطة كقالب للشهر الجديد
+    // ==========================================
+    public function duplicate(Request $request, ContentPlan $contentPlan)
+    {
+        $user = auth()->user();
+        if ($user->role->value !== 'manager') {
+            return response()->json(['message' => 'صلاحية الاستنساخ مخصصة للمدير فقط.'], 403);
+        }
+
+        // 1. التحقق من التواريخ الجديدة القادمة من الواجهة
+        $validated = $request->validate([
+            'start_date' => 'required|date',
+            'end_date' => 'required|date|after_or_equal:start_date',
+            'planned_delivery_date' => 'required|date|after_or_equal:start_date',
+            'planned_review_date' => 'nullable|date|after_or_equal:start_date',
+        ]);
+
+        // 2. استنساخ الخطة (replicate تنسخ البيانات الأساسية فقط بدون الـ ID والعلاقات)
+        $newPlan = $contentPlan->replicate();
+
+        // 3. حقن التواريخ الجديدة وتصفير التواريخ الفعلية
+        $newPlan->start_date = $validated['start_date'];
+        $newPlan->end_date = $validated['end_date'];
+        $newPlan->planned_delivery_date = $validated['planned_delivery_date'];
+
+        if (isset($validated['planned_review_date'])) {
+            $newPlan->planned_review_date = $validated['planned_review_date'];
+        }
+
+        // تصفير بيانات التنفيذ لأنها خطة جديدة
+        $newPlan->actual_delivery_date = null;
+        $newPlan->actual_review_date = null;
+        $newPlan->status = 'قيد التخطيط'; // إعادة الحالة للوضع الافتراضي
+
+        // 4. الحفظ (هنا سيتدخل الموديل تلقائياً لتوليد الاسم الجديد وإنشاء أول 3 أيام!)
+        $newPlan->save();
+
+        // 5. استنساخ فريق العمل المربوط بالخطة القديمة بنفس أدوارهم
+        $usersToAttach = [];
+        foreach ($contentPlan->users as $teamMember) {
+            $usersToAttach[$teamMember->id] = ['task_role' => $teamMember->pivot->task_role];
+        }
+        $newPlan->users()->attach($usersToAttach);
+
+        // تحميل العلاقات لإرسالها للواجهة
+        $newPlan->load(['client', 'users']);
+
+        return response()->json([
+            'message' => 'تم استنساخ الخطة بنجاح لبدء شهر جديد 🚀',
+            'data' => $newPlan
+        ], 201);
+    }
 }

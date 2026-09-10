@@ -66,4 +66,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/plan-posts/{post}/unlock-field', [App\Http\Controllers\Api\PlanPostController::class, 'unlockField']);
 
     Route::get('/user-tasks', [PlanPostController::class, 'getUserTasks']);
+
+    Route::post('/content-plans/{contentPlan}/duplicate', [App\Http\Controllers\Api\ContentPlanController::class, 'duplicate']);
 });
