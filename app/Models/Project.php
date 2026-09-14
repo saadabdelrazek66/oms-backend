@@ -3,9 +3,13 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class Project extends Model
 {
+    use LogsActivity;
+
     protected $fillable = [
         'name',
         'description',
@@ -15,6 +19,14 @@ class Project extends Model
     ];
 
     protected $appends = ['progress'];
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logFillable()->logOnlyDirty()->dontSubmitEmptyLogs()
+            ->useLogName('Project')
+            ->setDescriptionForEvent(fn(string $eventName) => "قام المستخدم بـ {$eventName} المشروع");
+    }
 
     // علاقة المشروع بالأقسام (Many-to-Many)
     public function departments()

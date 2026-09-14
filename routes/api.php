@@ -87,4 +87,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/dashboard/manager', [App\Http\Controllers\Api\ManagerDashboardController::class, 'index']);
     Route::get('/dashboard/manager/leaderboard', [App\Http\Controllers\Api\ManagerDashboardController::class, 'leaderboard']);
 
+    Route::get('/system-logs', [App\Http\Controllers\Api\SystemLogController::class, 'index']);
+    Route::delete('/system-logs', [App\Http\Controllers\Api\SystemLogController::class, 'destroy']);
 });

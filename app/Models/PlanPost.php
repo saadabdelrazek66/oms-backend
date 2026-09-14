@@ -4,10 +4,12 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class PlanPost extends Model
 {
-    use HasFactory;
+    use HasFactory, LogsActivity;
 
     protected $guarded = ['id', 'created_at', 'updated_at'];
 
@@ -27,6 +29,16 @@ class PlanPost extends Model
         'reviewers_statuses' => 'array',
         'locked_fields' => 'array',
     ];
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logUnguarded()
+            ->logOnlyDirty()
+            ->dontSubmitEmptyLogs()
+            ->useLogName('PlanPost')
+            ->setDescriptionForEvent(fn(string $eventName) => "قام المستخدم بـ {$eventName} منشور داخل الخطة");
+    }
 
     // العلاقات
     public function plan() {

@@ -12,13 +12,15 @@ use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use App\Enums\Role;
 use App\Enums\WorkType;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 #[Fillable(['name','job_title', 'email', 'password', 'role', 'phone','work_type'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable, HasApiTokens;
+    use HasFactory, Notifiable, HasApiTokens, LogsActivity;
 
     /**
      * Get the attributes that should be cast.
@@ -33,6 +35,14 @@ class User extends Authenticatable
             'role' => Role::class,
             'work_type' => WorkType::class,
         ];
+    }
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logFillable()->logOnlyDirty()->dontSubmitEmptyLogs()
+            ->useLogName('User')
+            ->setDescriptionForEvent(fn(string $eventName) => "قام المستخدم بـ {$eventName} بيانات الموظف");
     }
 
     public function hasRole(Role $role): bool

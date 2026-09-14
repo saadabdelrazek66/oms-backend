@@ -4,9 +4,12 @@ namespace App\Models;
 
 use Carbon\CarbonPeriod;
 use Illuminate\Database\Eloquent\Model;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class ContentPlan extends Model
 {
+    use LogsActivity;
     protected $fillable = [
         'name', // إضافة الاسم هنا
         'client_id',
@@ -31,6 +34,14 @@ class ContentPlan extends Model
         'actual_review_date' => 'datetime',
         'reference_links' => 'array',
     ];
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logFillable()->logOnlyDirty()->dontSubmitEmptyLogs()
+            ->useLogName('ContentPlan')
+            ->setDescriptionForEvent(fn(string $eventName) => "قام المستخدم بـ {$eventName} خطة المحتوى");
+    }
 
     protected static function booted()
     {
