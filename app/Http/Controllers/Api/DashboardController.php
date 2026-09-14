@@ -30,9 +30,8 @@ class DashboardController extends Controller
             ->selectRaw('SUM(CASE WHEN status != "completed" AND due_date < ? THEN 1 ELSE 0 END) as overdue', [$now])
             ->first();
 
-        // 2. إحصائيات منشورات الخطط (Posts Stats) - الجديد!
+        // 2. إحصائيات منشورات الخطط (Posts Stats)
         $postStats = PlanPost::where(function($q) use ($user) {
-            // جلب المنشورات التي يشارك فيها كمنفذ أو مراجع
             $q->where('designer_id', $user->id)
                 ->orWhereJsonContains('reviewer_ids', $user->id)
                 ->orWhereJsonContains('reviewer_ids', (string)$user->id);
@@ -43,18 +42,33 @@ class DashboardController extends Controller
             ->selectRaw('SUM(CASE WHEN delivered_at IS NULL AND deadline < ? THEN 1 ELSE 0 END) as overdue', [$now])
             ->first();
 
-        // 3. إحصائيات الأداء لهذا الشهر (KPI)
-        $monthStats = Task::where('assigned_to', $user->id)
+        // 3. أداء الشهر الحالي للمهام (Tasks KPI)
+        $monthTaskStats = Task::where('assigned_to', $user->id)
             ->whereBetween('created_at', [$startOfMonth, $endOfMonth])
-            ->selectRaw('COUNT(*) as total_this_month')
-            ->selectRaw('SUM(CASE WHEN status = "completed" THEN 1 ELSE 0 END) as completed_this_month')
+            ->selectRaw('COUNT(*) as total')
+            ->selectRaw('SUM(CASE WHEN status = "completed" THEN 1 ELSE 0 END) as completed')
             ->first();
 
-        $completionRate = $monthStats->total_this_month > 0
-            ? round(($monthStats->completed_this_month / $monthStats->total_this_month) * 100)
+        $taskCompletionRate = $monthTaskStats->total > 0
+            ? round(($monthTaskStats->completed / $monthTaskStats->total) * 100)
             : 0;
 
-        // 4. عدد الخطط
+        // 4. أداء الشهر الحالي للمنشورات (Posts KPI) - الجديد!
+        $monthPostStats = PlanPost::where(function($q) use ($user) {
+            $q->where('designer_id', $user->id)
+                ->orWhereJsonContains('reviewer_ids', $user->id)
+                ->orWhereJsonContains('reviewer_ids', (string)$user->id);
+        })
+            ->whereBetween('created_at', [$startOfMonth, $endOfMonth])
+            ->selectRaw('COUNT(*) as total')
+            ->selectRaw('SUM(CASE WHEN delivered_at IS NOT NULL THEN 1 ELSE 0 END) as completed')
+            ->first();
+
+        $postCompletionRate = $monthPostStats->total > 0
+            ? round(($monthPostStats->completed / $monthPostStats->total) * 100)
+            : 0;
+
+        // 5. عدد الخطط المشارك بها
         $totalPlans = ContentPlan::whereHas('users', function ($q) use ($user) {
             $q->where('users.id', $user->id);
         })->orWhereHas('posts', function ($q) use ($user) {
@@ -63,7 +77,7 @@ class DashboardController extends Controller
                 ->orWhereJsonContains('reviewer_ids', (string)$user->id);
         })->count();
 
-        // 5. الأولويات العاجلة: مهام
+        // 6. الأولويات العاجلة: مهام
         $upcomingTasks = Task::with('project:id,name')
             ->where('assigned_to', $user->id)
             ->where('status', '!=', 'completed')
@@ -72,7 +86,7 @@ class DashboardController extends Controller
             ->take(5)
             ->get();
 
-        // 6. الأولويات العاجلة: منشورات
+        // 7. الأولويات العاجلة: منشورات
         $upcomingPosts = PlanPost::with(['plan:id,client_id', 'plan.client:id,name'])
             ->where(function($q) use ($user) {
                 $q->where('designer_id', $user->id)
@@ -85,7 +99,7 @@ class DashboardController extends Controller
             ->take(5)
             ->get();
 
-        // إرجاع البيانات مهيكلة لتناسب الفرونت إند الجديد
+        // إرجاع البيانات مهيكلة
         return response()->json([
             'status' => 'success',
             'data' => [
@@ -105,8 +119,14 @@ class DashboardController extends Controller
                     'total_plans' => $totalPlans,
                 ],
                 'kpi' => [
-                    'completion_rate' => $completionRate,
-                    'total_this_month' => (int) $monthStats->total_this_month,
+                    'tasks' => [
+                        'completion_rate' => $taskCompletionRate,
+                        'total_this_month' => (int) $monthTaskStats->total,
+                    ],
+                    'posts' => [
+                        'completion_rate' => $postCompletionRate,
+                        'total_this_month' => (int) $monthPostStats->total,
+                    ],
                 ],
                 'priorities' => [
                     'upcoming_tasks' => $upcomingTasks,

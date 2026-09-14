@@ -84,4 +84,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/task-comments/{comment}', [App\Http\Controllers\Api\TaskCommentController::class, 'destroy']);
 
     Route::get('/dashboard/employee', [App\Http\Controllers\Api\DashboardController::class, 'employeeDashboard']);
+    Route::get('/dashboard/manager', [App\Http\Controllers\Api\ManagerDashboardController::class, 'index']);
+    Route::get('/dashboard/manager/leaderboard', [App\Http\Controllers\Api\ManagerDashboardController::class, 'leaderboard']);
+
 });
