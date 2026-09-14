@@ -26,6 +26,34 @@ class ContentPlanController extends Controller
         return response()->json($query->orderBy('id', 'desc')->paginate(15));
     }
 
+    public function boardPlans(Request $request)
+    {
+        $user = $request->user();
+
+        // قمنا بجلب علاقة (العميل) فقط لأنها الوحيدة المستخدمة في واجهة الـ Boards
+        $query = ContentPlan::with(['client']);
+
+        if ($user->role->value === 'employee') {
+            $query->where(function ($q) use ($user) {
+                // 1. هل هو المسؤول عن الخطة بشكل عام؟
+                $q->whereHas('users', function ($userQuery) use ($user) {
+                    $userQuery->where('users.id', $user->id);
+                })
+                    // 2. أو هل له أي مهام داخل محتوى الخطة (منفذ أو مراجع)؟
+                    ->orWhereHas('posts', function ($postQuery) use ($user) {
+                        $postQuery->where(function ($subQuery) use ($user) {
+                            $subQuery->where('designer_id', $user->id)
+                                ->orWhereJsonContains('reviewer_ids', $user->id)
+                                ->orWhereJsonContains('reviewer_ids', (string)$user->id);
+                        });
+                    });
+            });
+        }
+
+        // يمكنك استخدام get() بدلاً من paginate() إذا كنت تريد عرض كل الكروت في الشاشة بدون صفحات
+        return response()->json($query->orderBy('id', 'desc')->get());
+    }
+
     // إضافة خطة جديدة
     public function store(ContentPlanRequest $request)
     {

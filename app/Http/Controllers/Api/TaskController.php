@@ -7,6 +7,8 @@ use App\Models\Project;
 use App\Models\Task;
 use App\Http\Requests\StoreTaskRequest;
 use App\Http\Requests\UpdateTaskRequest;
+use Carbon\Carbon;
+use Illuminate\Validation\ValidationException;
 
 class TaskController extends Controller
 {
@@ -22,9 +24,40 @@ class TaskController extends Controller
         return response()->json(['data' => $tasks]);
     }
 
+    /**
+     * دالة مساعدة مركزية للتحقق من أن تاريخ المهمة يقع ضمن إطار المشروع
+     */
+    private function validateTaskDates(Project $project, ?string $dueDate)
+    {
+        if (!$dueDate) return; // إذا لم يتم تحديد ديدلاين للمهمة، نتخطى الفحص
+
+        // إذا كان المشروع نفسه ليس له تواريخ، نتخطى الفحص
+        if (!$project->start_date || !$project->end_date) return;
+
+        $taskDate = Carbon::parse($dueDate)->endOfDay();
+        $projectStart = Carbon::parse($project->start_date)->startOfDay();
+        $projectEnd = Carbon::parse($project->end_date)->endOfDay();
+
+        if ($taskDate->lessThan($projectStart)) {
+            throw ValidationException::withMessages([
+                'due_date' => ["تاريخ استحقاق المهمة لا يمكن أن يكون قبل تاريخ بداية المشروع ({$project->start_date})."]
+            ]);
+        }
+
+        if ($taskDate->greaterThan($projectEnd)) {
+            throw ValidationException::withMessages([
+                'due_date' => ["تاريخ استحقاق المهمة لا يمكن أن يتجاوز تاريخ انتهاء المشروع ({$project->end_date})."]
+            ]);
+        }
+    }
+
     public function store(StoreTaskRequest $request, Project $project)
     {
         $validated = $request->validated();
+
+        // --- 🔴 قوة التحقق (Time Boundaries Logic) 🔴 ---
+        $this->validateTaskDates($project, $validated['due_date'] ?? null);
+
         $user = auth()->user();
 
         $validated['project_id'] = $project->id;
@@ -67,6 +100,13 @@ class TaskController extends Controller
     public function update(UpdateTaskRequest $request, Task $task)
     {
         $validated = $request->validated();
+
+        // --- 🔴 قوة التحقق (Time Boundaries Logic) 🔴 ---
+        // نمرر المشروع الخاص بالمهمة الحالية للفحص
+        if (array_key_exists('due_date', $validated)) {
+            $this->validateTaskDates($task->project, $validated['due_date']);
+        }
+
         $user = auth()->user();
 
         if ($user->role->value !== 'manager') {
@@ -138,7 +178,7 @@ class TaskController extends Controller
         }
 
         // rawurlencode يحافظ على المسافات والرموز التعبيرية بصورة متوافقة مع wa.me.
-        return "https://wa.me/{$phone}?text=" . rawurlencode($message );
+        return "https://wa.me/{$phone}?text=" . rawurlencode($message);
     }
 
     public function destroy(Task $task)
@@ -150,5 +190,4 @@ class TaskController extends Controller
         $task->delete();
         return response()->json(['message' => 'تم حذف المهمة']);
     }
-    
 }

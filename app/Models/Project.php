@@ -14,6 +14,8 @@ class Project extends Model
         'end_date',
     ];
 
+    protected $appends = ['progress'];
+
     // علاقة المشروع بالأقسام (Many-to-Many)
     public function departments()
     {
@@ -30,5 +32,26 @@ class Project extends Model
     public function tasks()
     {
         return $this->hasMany(Task::class);
+    }
+
+    /**
+     * حساب نسبة إنجاز المشروع بناءً على المهام المكتملة
+     */
+    public function getProgressAttribute()
+    {
+        // استخدام العلاقات المحملة لمنع مشكلة (N+1 Query Problem)
+        if ($this->relationLoaded('tasks')) {
+            $totalTasks = $this->tasks->count();
+            if ($totalTasks === 0) return 0;
+            $completedTasks = $this->tasks->where('status', 'completed')->count();
+            return round(($completedTasks / $totalTasks) * 100);
+        }
+
+        // في حالة استدعاء المشروع منفرداً
+        $totalTasks = $this->tasks()->count();
+        if ($totalTasks === 0) return 0;
+
+        $completedTasks = $this->tasks()->where('status', 'completed')->count();
+        return round(($completedTasks / $totalTasks) * 100);
     }
 }

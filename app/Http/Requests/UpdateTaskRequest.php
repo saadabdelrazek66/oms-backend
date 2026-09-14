@@ -19,18 +19,19 @@ class UpdateTaskRequest extends FormRequest
 
     public function rules(): array
     {
-        $rules = [
+        if (auth()->user()->role->value !== 'manager') {
+            return [
+                'status' => 'required|in:todo,in_progress,in_review,completed',
+            ];
+        }
+
+        return [
             'title' => 'sometimes|required|string|max:255',
             'description' => 'nullable|string',
             'status' => 'sometimes|required|in:todo,in_progress,in_review,completed',
             'priority' => 'nullable|in:low,medium,high,urgent',
             'due_date' => 'nullable|date',
+            'assigned_to' => 'sometimes|required|exists:users,id',
         ];
-
-        if (auth()->user()->role->value === 'manager') {
-            $rules['assigned_to'] = 'sometimes|required|exists:users,id';
-        }
-
-        return $rules;
     }
 }

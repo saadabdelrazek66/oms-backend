@@ -31,6 +31,8 @@ class UserRequest extends FormRequest
         return [
             'name' => 'required|string|min:3|max:100',
 
+            'job_title' => 'required|string|min:2|max:150', // إضافة قاعدة التحقق للمسمى الوظيفي
+
             'email' => [
                 'required',
                 'string',
@@ -47,7 +49,7 @@ class UserRequest extends FormRequest
                 'regex:/^\+?[0-9]+$/',
                 'min:10',
                 'max:15',
-                Rule::unique('users', 'phone')->ignore($userId), // منع تكرار رقم الهاتف مع استثناء المستخدم الحالي عند التعديل
+                Rule::unique('users', 'phone')->ignore($userId),
             ],
 
             'work_type' => ['required', new Enum(WorkType::class)],
@@ -70,6 +72,11 @@ class UserRequest extends FormRequest
             'name.required' => 'يرجى إدخال اسم المستخدم.',
             'name.min' => 'اسم المستخدم يجب أن يتكون من 3 أحرف على الأقل.',
 
+            // رسائل الخطأ الخاصة بالمسمى الوظيفي
+            'job_title.required' => 'يرجى إدخال المسمى الوظيفي.',
+            'job_title.min' => 'المسمى الوظيفي يجب أن يتكون من حرفين على الأقل.',
+            'job_title.max' => 'المسمى الوظيفي يجب ألا يتجاوز 150 حرفاً.',
+
             'email.required' => 'البريد الإلكتروني مطلوب.',
             'email.email' => 'صيغة البريد الإلكتروني غير صحيحة.',
             'email.unique' => 'هذا البريد الإلكتروني مسجل مسبقاً لمستخدم آخر.',
@@ -81,7 +88,7 @@ class UserRequest extends FormRequest
             'phone.regex' => 'رقم الهاتف يجب أن يحتوي على أرقام فقط.',
             'phone.min' => 'رقم الهاتف قصير جداً (الحد الأدنى 10 أرقام).',
             'phone.max' => 'رقم الهاتف طويل جداً (الحد الأقصى 15 رقماً).',
-            'phone.unique' => 'رقم الهاتف هذا مسجل مسبقاً لمستخدم آخر، يرجى استخدام رقم مختلف.', // رسالة الخطأ المخصصة
+            'phone.unique' => 'رقم الهاتف هذا مسجل مسبقاً لمستخدم آخر، يرجى استخدام رقم مختلف.',
 
             'role.required' => 'يرجى تحديد صلاحية المستخدم (مدير أو موظف).',
             'role.in' => 'الصلاحية المحددة غير صالحة.',

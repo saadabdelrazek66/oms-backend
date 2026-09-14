@@ -13,7 +13,7 @@ use Laravel\Sanctum\HasApiTokens;
 use App\Enums\Role;
 use App\Enums\WorkType;
 
-#[Fillable(['name', 'email', 'password', 'role', 'phone','work_type'])]
+#[Fillable(['name','job_title', 'email', 'password', 'role', 'phone','work_type'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {

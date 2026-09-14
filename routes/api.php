@@ -26,8 +26,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/plan-posts/{post}/review', [PlanPostController::class, 'review']);
 
     Route::get('/departments/list-all', [DepartmentController::class, 'listAll']);
+    Route::apiResource('users', UserController::class);
     Route::middleware('role:manager')->group(function () {
-        Route::apiResource('users', UserController::class);
         Route::post('/content-plans', [ContentPlanController::class, 'store']);
         Route::put('/content-plans/{content_plan}', [ContentPlanController::class, 'update']);
         Route::delete('/content-plans/{content_plan}', [ContentPlanController::class, 'destroy']);
@@ -36,6 +36,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::get('/content-plans', [ContentPlanController::class, 'index']);
+    Route::get('/plans/boards', [App\Http\Controllers\Api\ContentPlanController::class, 'boardPlans']);
     // مسارات أفعال الخطط
     Route::post('content-plans/{content_plan}/submit-review', [ContentPlanController::class, 'submitForReview']);
     Route::post('content-plans/{content_plan}/final-delivery', [ContentPlanController::class, 'submitFinalDelivery']);
@@ -76,4 +77,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/tasks/{task}', [App\Http\Controllers\Api\TaskController::class, 'update']);
     Route::patch('/tasks/{task}', [App\Http\Controllers\Api\TaskController::class, 'update']); // PATCH ممتازة للسحب والإفلات
     Route::delete('/tasks/{task}', [App\Http\Controllers\Api\TaskController::class, 'destroy']);
+
+    Route::get('/tasks/{task}/comments', [App\Http\Controllers\Api\TaskCommentController::class, 'index']);
+    Route::post('/tasks/{task}/comments', [App\Http\Controllers\Api\TaskCommentController::class, 'store']);
+    Route::put('/task-comments/{comment}', [App\Http\Controllers\Api\TaskCommentController::class, 'update']);
+    Route::delete('/task-comments/{comment}', [App\Http\Controllers\Api\TaskCommentController::class, 'destroy']);
+
+    Route::get('/dashboard/employee', [App\Http\Controllers\Api\DashboardController::class, 'employeeDashboard']);
 });
