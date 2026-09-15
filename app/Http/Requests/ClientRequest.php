@@ -30,6 +30,12 @@ class ClientRequest extends FormRequest
             'bank_branch' => 'nullable|string|max:150',
             'bank_account' => ['nullable', 'string', 'regex:/^[a-zA-Z0-9]+$/', 'min:10', 'max:34'],
 
+            // أضف هذا الجزء داخل دالة قواعد التحقق (Rules)
+            'drive_links' => 'nullable|array',
+            'drive_links.*.id' => 'nullable|exists:client_drive_links,id', // يُستخدم في حالة التعديل
+            'drive_links.*.title' => 'required_with:drive_links|string|max:255',
+            'drive_links.*.url' => 'required_with:drive_links|url|max:1000',
+
             'instapay' => ['nullable', 'string', 'regex:/^[a-zA-Z0-9_\.\-]+$/', 'max:50'],
             'wallet' => ['nullable', 'string', 'regex:/^\+?[0-9]+$/', 'min:10', 'max:15'],
 

@@ -54,6 +54,9 @@ class ContentPlanRequest extends FormRequest
             'reference_links' => 'nullable|array|max:15',
             // التأكد أن كل عنصر داخل المصفوفة هو رابط حقيقي
             'reference_links.*' => 'required|url|max:1000',
+
+            'required_brief_fields' => 'nullable|array',
+            'required_brief_fields.*' => 'string',
         ];
     }
 

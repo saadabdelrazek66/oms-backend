@@ -51,4 +51,12 @@ class Client extends Model
     {
         return $this->hasMany(ClientCredential::class);
     }
+
+    /**
+     * علاقة العميل بروابط درايف الخاصة به
+     */
+    public function driveLinks()
+    {
+        return $this->hasMany(ClientDriveLink::class);
+    }
 }

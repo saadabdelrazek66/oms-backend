@@ -12,10 +12,11 @@ class ClientController extends Controller
 {
     public function __construct(private ClientService $service) {}
 
-    // عرض كل العملاء مع جهات الاتصال الخاصة بهم
+    // عرض كل العملاء مع جهات الاتصال وروابط درايف الخاصة بهم
     public function index()
     {
-        $clients = Client::with('contacts')->orderBy('id', 'desc')->paginate(15);
+        $clients = Client::with(['contacts', 'driveLinks'])->orderBy('id', 'desc')->paginate(15);
+
         return response()->json($clients);
     }
 
@@ -41,7 +42,7 @@ class ClientController extends Controller
         ]);
     }
 
-    // حذف العميل (بفضل cascadeOnDelete في الداتابيز، سيتم حذف جهات الاتصال التابعة له تلقائياً)
+    // حذف العميل
     public function destroy(Client $client)
     {
         $client->delete();

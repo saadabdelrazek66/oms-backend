@@ -20,6 +20,7 @@ class ContentPlan extends Model
         'actual_delivery_date',
         'planned_review_date',
         'actual_review_date',
+        'required_brief_fields',
         'start_date',
         'end_date',
         'reference_links',
@@ -33,6 +34,7 @@ class ContentPlan extends Model
         'planned_review_date' => 'datetime',
         'actual_review_date' => 'datetime',
         'reference_links' => 'array',
+        'required_brief_fields' => 'array',
     ];
 
     public function getActivitylogOptions(): LogOptions

@@ -17,9 +17,84 @@ class ContentPlanController extends Controller
         $user = $request->user();
 
         $query = ContentPlan::with(['users', 'client', 'reviewHistories.reviewer', 'clientFollowUps.user']);
+
+        // 1. صلاحيات الموظف (يرى خططه فقط)
         if ($user->role->value === 'employee') {
             $query->whereHas('users', function ($q) use ($user) {
                 $q->where('users.id', $user->id);
+            });
+        }
+
+        // ==========================================
+        // 🔍 الفلاتر الإدارية (Manager Filters)
+        // ==========================================
+
+        // 2. فلتر بالعميل (لمعرفة كل خطط عميل معين)
+        if ($request->filled('client_id')) {
+            $query->where('client_id', $request->client_id);
+        }
+
+        // 3. فلتر بحالة الخطة (إن وجدت لديك مثل: معلقة، قيد المراجعة، مكتملة)
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        // 4. فلتر بنوع الخطة (مثال: SEO, Social Media)
+        if ($request->filled('plan_type')) {
+            $query->where('plan_type', 'like', '%' . $request->plan_type . '%');
+        }
+
+        // 5. فلتر بموظف محدد (للمدير: لمراقبة خطط موظف معين)
+        if ($user->role->value === 'manager' && $request->filled('employee_id')) {
+            $query->whereHas('users', function ($q) use ($request) {
+                $q->where('users.id', $request->employee_id);
+            });
+        }
+
+        // 6. فلتر الخطط التي تتطلب مراجعة فقط (أو التي لا تتطلب)
+        if ($request->has('requires_review')) {
+            $query->where('requires_review', $request->boolean('requires_review'));
+        }
+
+        // يجلب الخطط التي تجاوزت موعد التسليم ولم تكتمل بعد
+        if ($request->boolean('is_overdue')) {
+            $query->where('planned_delivery_date', '<', now()->format('Y-m-d'))
+                ->where('status', '!=', 'completed'); // تأكد من اسم حالة الاكتمال لديك
+        }
+
+        // ==========================================
+        // 📅 فلاتر التواريخ (Date Ranges)
+        // ==========================================
+
+        // 8. فلتر بفترة النشر (من - إلى)
+        if ($request->filled('start_date') && $request->filled('end_date')) {
+            $query->where(function ($q) use ($request) {
+                $q->whereBetween('start_date', [$request->start_date, $request->end_date])
+                    ->orWhereBetween('end_date', [$request->start_date, $request->end_date]);
+            });
+        }
+
+        // 9. فلتر بموعد التسليم النهائي (للبحث عن تسليمات هذا الأسبوع مثلاً)
+        if ($request->filled('delivery_from') && $request->filled('delivery_to')) {
+            $query->whereBetween('planned_delivery_date', [$request->delivery_from, $request->delivery_to]);
+        }
+
+        // 10. فلتر بموعد المراجعة
+        if ($request->filled('review_from') && $request->filled('review_to')) {
+            $query->whereBetween('planned_review_date', [$request->review_from, $request->review_to]);
+        }
+
+        // ==========================================
+        // 🔎 فلتر البحث النصي الشامل (Global Search)
+        // ==========================================
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('plan_type', 'like', "%{$search}%")
+                    ->orWhere('notes', 'like', "%{$search}%")
+                    ->orWhereHas('client', function($cq) use ($search) {
+                        $cq->where('name', 'like', "%{$search}%");
+                    });
             });
         }
 

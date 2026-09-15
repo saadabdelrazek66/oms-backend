@@ -31,14 +31,18 @@ class PlanPostController extends Controller
     // 2. إضافة صف جديد لليوم الواحد (في حالة أراد العميل نشر أكثر من بوست في نفس اليوم)
     public function store(Request $request, ContentPlan $plan)
     {
+        // 1. إضافة الحقل الجديد لقواعد التحقق
         $request->validate([
-            'target_date' => 'required|date'
+            'target_date' => 'required|date',
+            'is_urgent'   => 'nullable|boolean'
         ]);
 
+        // 2. تمرير القيمة عند الإنشاء
         $post = $plan->posts()->create([
-            'target_date' => $request->target_date,
+            'target_date'           => $request->target_date,
+            'is_urgent'             => $request->boolean('is_urgent'), // تحويل آمن لـ true/false
             'actual_publish_status' => 'لم يتم',
-            'finance_status' => 'غير ممول',
+            'finance_status'        => 'غير ممول',
         ]);
 
         // نرجع الصف الجديد بالكامل للفرونت إند ليتم رسمه في الجدول فوراً
@@ -389,14 +393,13 @@ class PlanPostController extends Controller
         ]);
     }
 
-    // دالة بدء التنفيذ (التكليف) والتحقق من اكتمال الـ Brief
+// دالة بدء التنفيذ (التكليف) والتحقق الديناميكي من اكتمال الـ Brief
     public function startExecution(Request $request, PlanPost $post)
     {
         $user = auth()->user();
         $isManager = $user->role->value === 'manager';
 
-
-        // التحقق مما إذا كان المستخدم هو مسئول الخطة
+        // 1. التحقق مما إذا كان المستخدم هو مسئول الخطة
         $isResponsible = DB::table('content_plan_user')
             ->where('content_plan_id', $post->content_plan_id)
             ->where('user_id', $user->id)
@@ -415,8 +418,12 @@ class PlanPostController extends Controller
             ], 422);
         }
 
-        // قائمة الحقول الإلزامية التي تشكل الـ Brief للمنفذ
-        $requiredFields = [
+        // 2. تحميل الخطة لجلب إعدادات الحقول الإلزامية الخاصة بها
+        $post->loadMissing('contentPlan');
+        $plan = $post->contentPlan;
+
+        // 3. القائمة الرئيسية الشاملة لكل حقول الـ Brief (Master List)
+        $allPossibleFields = [
             'reviewer_ids' => 'المراجعين',
             'deadline' => 'الديدلاين',
             'finance_status' => 'موقف التمويل',
@@ -430,9 +437,25 @@ class PlanPostController extends Controller
             'hashtags' => 'Hashtag'
         ];
 
-        $missingFields = [];
+        // 4. تحديد الحقول المطلوبة (Dynamic Validation Logic)
+        $activeRequiredFields = [];
+        $planSettings = $plan->required_brief_fields;
 
-        foreach ($requiredFields as $field => $label) {
+        if (is_null($planSettings)) {
+            // الوضع الافتراضي: إذا لم يتم تخصيص إعدادات، نطلب جميع الحقول
+            $activeRequiredFields = $allPossibleFields;
+        } else {
+            // الوضع المخصص: نطلب فقط الحقول التي اختارها العميل في المصفوفة
+            foreach ($planSettings as $key) {
+                if (array_key_exists($key, $allPossibleFields)) {
+                    $activeRequiredFields[$key] = $allPossibleFields[$key];
+                }
+            }
+        }
+
+        // 5. حلقة التحقق (Validation Loop)
+        $missingFields = [];
+        foreach ($activeRequiredFields as $field => $label) {
             // التحقق من المصفوفات (مثل المراجعين)
             if (is_array($post->$field)) {
                 if (count($post->$field) === 0) {
@@ -445,14 +468,15 @@ class PlanPostController extends Controller
             }
         }
 
-        // إذا كان هناك حقول ناقصة، نرفض العملية ونخبر المسئول بها
+        // 6. إذا كان هناك حقول ناقصة، نرفض العملية
         if (count($missingFields) > 0) {
             $missingString = implode('، ', $missingFields);
             return response()->json([
                 'message' => 'لا يمكن بدء العمل قبل استكمال الـ Brief. الحقول الناقصة: ' . $missingString
-            ], 422); // 422 تعني Unprocessable Entity (بيانات غير مكتملة)
+            ], 422);
         }
 
+        // 7. نجاح التكليف
         $post->update(['execution_started_at' => now()]);
 
         $whatsappPayload = $this->generateWhatsAppPayload('execution_started', $post);
