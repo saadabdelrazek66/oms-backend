@@ -16,9 +16,8 @@ class AuthService
 
         $user = auth()->user();
 
-        activity()
+        activity('Auth')
             ->causedBy($user)
-            ->useLogName('Auth')
             ->log('تسجيل دخول للنظام');
 
         $expiration = $remember ? now()->addYears(1) : now()->addHours(12);
@@ -33,9 +32,8 @@ class AuthService
 
     public function logout($user)
     {
-        activity()
+        activity('Auth')
             ->causedBy($user)
-            ->useLogName('Auth')
             ->log('تسجيل خروج من النظام');
 
         $user->currentAccessToken()->delete();
