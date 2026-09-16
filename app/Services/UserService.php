@@ -9,6 +9,11 @@ class UserService
 {
     public function createUser(array $data)
     {
+        // إذا كان المستخدم مديراً، يتم تعيين المسمى الوظيفي تلقائياً
+        if (isset($data['role']) && $data['role'] === 'manager') {
+            $data['job_title'] = 'Manager';
+        }
+
         $data['password'] = Hash::make($data['password']);
 
         return User::create($data);
@@ -44,6 +49,11 @@ class UserService
     // تعديل بيانات مستخدم
     public function updateUser(User $user, array $data)
     {
+        // حماية إضافية: إذا تم ترقية المستخدم لمدير، نغير مسماه الوظيفي
+        if (isset($data['role']) && $data['role'] === 'manager') {
+            $data['job_title'] = 'Manager';
+        }
+
         // إذا تم إرسال كلمة مرور جديدة، قم بتشفيرها
         if (!empty($data['password'])) {
             $data['password'] = Hash::make($data['password']);

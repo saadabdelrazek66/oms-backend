@@ -28,6 +28,8 @@ class PlanPost extends Model
         'reviewer_ids' => 'array',
         'reviewers_statuses' => 'array',
         'locked_fields' => 'array',
+        'finance_cost' => 'decimal:2',
+        'finance_days' => 'integer',
     ];
 
     public function getActivitylogOptions(): LogOptions
@@ -53,5 +55,9 @@ class PlanPost extends Model
     public function contentPlan()
     {
         return $this->belongsTo(ContentPlan::class, 'content_plan_id');
+    }
+    public function messages()
+    {
+        return $this->hasMany(PostMessage::class, 'plan_post_id');
     }
 }

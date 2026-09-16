@@ -31,7 +31,11 @@ class UserRequest extends FormRequest
         return [
             'name' => 'required|string|min:3|max:100',
 
-            'job_title' => 'required|string|min:2|max:150', // إضافة قاعدة التحقق للمسمى الوظيفي
+            // التحقق من الدور أولاً
+            'role' => 'required|in:manager,employee',
+
+            // المسمى الوظيفي إجباري فقط للموظف، ويجب أن يكون من القائمة
+            'job_title' => 'required_if:role,employee|nullable|string|in:Video Editor,Graphic Designer,Developer,Media Buyer,Account Manager,Sales,Manager',
 
             'email' => [
                 'required',
@@ -54,8 +58,6 @@ class UserRequest extends FormRequest
 
             'work_type' => ['required', new Enum(WorkType::class)],
 
-            'role' => 'required|in:manager,employee',
-
             'primary_department_id' => 'nullable|exists:departments,id',
 
             'additional_department_ids' => 'nullable|array',
@@ -72,10 +74,11 @@ class UserRequest extends FormRequest
             'name.required' => 'يرجى إدخال اسم المستخدم.',
             'name.min' => 'اسم المستخدم يجب أن يتكون من 3 أحرف على الأقل.',
 
-            // رسائل الخطأ الخاصة بالمسمى الوظيفي
-            'job_title.required' => 'يرجى إدخال المسمى الوظيفي.',
-            'job_title.min' => 'المسمى الوظيفي يجب أن يتكون من حرفين على الأقل.',
-            'job_title.max' => 'المسمى الوظيفي يجب ألا يتجاوز 150 حرفاً.',
+            // رسائل الخطأ الخاصة بالمسمى الوظيفي والدور
+            'role.required' => 'يرجى تحديد صلاحية المستخدم (مدير أو موظف).',
+            'role.in' => 'الصلاحية المحددة غير صالحة.',
+            'job_title.required_if' => 'يرجى اختيار المسمى الوظيفي للموظف.',
+            'job_title.in' => 'المسمى الوظيفي المختار غير صحيح. يرجى الاختيار من القائمة المتاحة.',
 
             'email.required' => 'البريد الإلكتروني مطلوب.',
             'email.email' => 'صيغة البريد الإلكتروني غير صحيحة.',
@@ -89,9 +92,6 @@ class UserRequest extends FormRequest
             'phone.min' => 'رقم الهاتف قصير جداً (الحد الأدنى 10 أرقام).',
             'phone.max' => 'رقم الهاتف طويل جداً (الحد الأقصى 15 رقماً).',
             'phone.unique' => 'رقم الهاتف هذا مسجل مسبقاً لمستخدم آخر، يرجى استخدام رقم مختلف.',
-
-            'role.required' => 'يرجى تحديد صلاحية المستخدم (مدير أو موظف).',
-            'role.in' => 'الصلاحية المحددة غير صالحة.',
 
             'primary_department_id.exists' => 'القسم الأساسي المحدد غير موجود.',
             'additional_department_ids.*.exists' => 'أحد الأقسام الإضافية المحددة غير موجود في النظام.',

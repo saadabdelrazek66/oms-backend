@@ -31,9 +31,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/content-plans', [ContentPlanController::class, 'store']);
         Route::put('/content-plans/{content_plan}', [ContentPlanController::class, 'update']);
         Route::delete('/content-plans/{content_plan}', [ContentPlanController::class, 'destroy']);
-        Route::apiResource('clients', ClientController::class);
         Route::apiResource('departments', DepartmentController::class);
     });
+    Route::apiResource('clients', ClientController::class);
+
 
     Route::get('/content-plans', [ContentPlanController::class, 'index']);
     Route::get('/plans/boards', [App\Http\Controllers\Api\ContentPlanController::class, 'boardPlans']);

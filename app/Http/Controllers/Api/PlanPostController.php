@@ -10,15 +10,25 @@ use Illuminate\Support\Facades\DB;
 
 class PlanPostController extends Controller
 {
-    // 1. جلب جميع محتويات الخطة
+   // 1. جلب جميع محتويات الخطة
     public function index(ContentPlan $plan)
     {
-        $posts = $plan->posts()->get();
+        $user = auth()->user();
+        
+        // نبدأ الاستعلام
+        $query = $plan->posts();
+
+        // 🔴 التعديل الأمني: إذا كان الموظف "Media Buyer"، نجلب له فقط المنشورات الممولة
+        if ($user->job_title === 'Media Buyer') {
+            $query->where('finance_status', 'ممول');
+        }
+
+        $posts = $query->get();
 
         // التحقق مما إذا كان المستخدم الحالي هو "مسئول" لهذه الخطة
         $isResponsible = DB::table('content_plan_user')
             ->where('content_plan_id', $plan->id)
-            ->where('user_id', auth()->id())
+            ->where('user_id', $user->id)
             ->where('task_role', 'responsible')
             ->exists();
 
@@ -34,15 +44,15 @@ class PlanPostController extends Controller
         // 1. إضافة الحقل الجديد لقواعد التحقق
         $request->validate([
             'target_date' => 'required|date',
-            'is_urgent'   => 'nullable|boolean'
+            'is_urgent' => 'nullable|boolean'
         ]);
 
         // 2. تمرير القيمة عند الإنشاء
         $post = $plan->posts()->create([
-            'target_date'           => $request->target_date,
-            'is_urgent'             => $request->boolean('is_urgent'), // تحويل آمن لـ true/false
+            'target_date' => $request->target_date,
+            'is_urgent' => $request->boolean('is_urgent'), // تحويل آمن لـ true/false
             'actual_publish_status' => 'لم يتم',
-            'finance_status'        => 'غير ممول',
+            'finance_status' => 'غير ممول',
         ]);
 
         // نرجع الصف الجديد بالكامل للفرونت إند ليتم رسمه في الجدول فوراً
@@ -53,6 +63,12 @@ class PlanPostController extends Controller
     }
     public function update(Request $request, PlanPost $post)
     {
+
+        $request->validate([
+            'finance_cost' => 'nullable|numeric|min:0',
+            'finance_days' => 'nullable|integer|min:0',
+        ]);
+        
         $user = auth()->user();
         $isManager = $user->role->value === 'manager';
         $isExecutor = $user->id == $post->designer_id;
@@ -186,7 +202,8 @@ class PlanPostController extends Controller
         } elseif ($shouldNotifyRejection) {
             $targetUserIds = [];
 
-            if ($post->designer_id) $targetUserIds[] = $post->designer_id;
+            if ($post->designer_id)
+                $targetUserIds[] = $post->designer_id;
 
             $reviewers = is_array($post->reviewer_ids) ? $post->reviewer_ids : (json_decode($post->reviewer_ids, true) ?? []);
             if (is_array($reviewers)) {
@@ -344,8 +361,7 @@ class PlanPostController extends Controller
             if ($request->review_type == 'manager' && $post->manager_review_status === 'معتمد') {
                 // الاعتماد النهائي للمدير
                 $whatsappPayload = $this->generateWhatsAppPayload('manager_approved', $post);
-            }
-            elseif ($request->review_type == 'reviewer' && $post->review_status === 'معتمد') {
+            } elseif ($request->review_type == 'reviewer' && $post->review_status === 'معتمد') {
                 // اكتمال إجماع القسم (أو اعتماد إشرافي من المدير بالنيابة عن القسم)
                 $whatsappPayload = $this->generateWhatsAppPayload('department_approved', $post);
             }
@@ -393,7 +409,7 @@ class PlanPostController extends Controller
         ]);
     }
 
-// دالة بدء التنفيذ (التكليف) والتحقق الديناميكي من اكتمال الـ Brief
+    // دالة بدء التنفيذ (التكليف) والتحقق الديناميكي من اكتمال الـ Brief
     public function startExecution(Request $request, PlanPost $post)
     {
         $user = auth()->user();
@@ -619,22 +635,24 @@ class PlanPostController extends Controller
         $isManager = $user->role->value === 'manager';
 
         // --- 1. اللوجيك الأمني لتحديد الموظف المستهدف ---
-        $targetUserId = ($isManager && $request->filled('user_id')) ? (int)$request->user_id : $user->id;
+        $targetUserId = ($isManager && $request->filled('user_id')) ? (int) $request->user_id : $user->id;
 
         // --- 2. بناء الاستعلام الأساسي للأدوار (مع جلب علاقة الخطة لاسمها) ---
         $query = PlanPost::with('contentPlan:id,name') // جلب اسم الخطة لتسهيل العرض
-        ->where(function($q) use ($targetUserId) {
-            $q->where('designer_id', $targetUserId)
-                ->orWhereJsonContains('reviewer_ids', (string)$targetUserId)
-                ->orWhereJsonContains('reviewer_ids', (int)$targetUserId);
-        });
+            ->where(function ($q) use ($targetUserId) {
+                $q->where('designer_id', $targetUserId)
+                    ->orWhereJsonContains('reviewer_ids', (string) $targetUserId)
+                    ->orWhereJsonContains('reviewer_ids', (int) $targetUserId);
+            });
 
         // --- 3. تطبيق الفلاتر الشاملة (Filters) ---
 
         // أ. موقف التسليم
         if ($request->filled('delivery_status')) {
-            if ($request->delivery_status === 'delivered') $query->whereNotNull('delivered_at');
-            elseif ($request->delivery_status === 'pending') $query->whereNull('delivered_at');
+            if ($request->delivery_status === 'delivered')
+                $query->whereNotNull('delivered_at');
+            elseif ($request->delivery_status === 'pending')
+                $query->whereNull('delivered_at');
         }
 
         // ب. حالة مراجعة القسم
@@ -691,9 +709,11 @@ class PlanPostController extends Controller
         // --- 6. جلب أسماء الأطراف بذكاء ---
         $userIds = collect();
         foreach ($tasks->items() as $task) {
-            if ($task->designer_id) $userIds->push($task->designer_id);
+            if ($task->designer_id)
+                $userIds->push($task->designer_id);
             if (!empty($task->reviewer_ids) && is_array($task->reviewer_ids)) {
-                foreach ($task->reviewer_ids as $rId) $userIds->push($rId);
+                foreach ($task->reviewer_ids as $rId)
+                    $userIds->push($rId);
             }
         }
         $userIds = $userIds->unique()->filter();
@@ -708,7 +728,8 @@ class PlanPostController extends Controller
             $revNames = [];
             if (!empty($task->reviewer_ids) && is_array($task->reviewer_ids)) {
                 foreach ($task->reviewer_ids as $rId) {
-                    if (isset($usersMap[$rId])) $revNames[] = $usersMap[$rId];
+                    if (isset($usersMap[$rId]))
+                        $revNames[] = $usersMap[$rId];
                 }
             }
             $task->reviewer_names = $revNames;
@@ -811,7 +832,7 @@ class PlanPostController extends Controller
         $lockedFields = is_array($post->locked_fields) ? $post->locked_fields : (json_decode($post->locked_fields, true) ?? []);
 
         // 3. إزالة الحقل المستهدف من المصفوفة
-        $lockedFields = array_values(array_filter($lockedFields, function($field) use ($fieldName) {
+        $lockedFields = array_values(array_filter($lockedFields, function ($field) use ($fieldName) {
             return $field !== $fieldName;
         }));
 
