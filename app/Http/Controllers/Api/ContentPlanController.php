@@ -105,8 +105,12 @@ class ContentPlanController extends Controller
     {
         $user = $request->user();
 
-        // قمنا بجلب علاقة (العميل) فقط لأنها الوحيدة المستخدمة في واجهة الـ Boards
+        // تحسين الأداء 1: استخدام with لجلب العميل يمنع مشكلة N+1 Query
         $query = ContentPlan::with(['client']);
+
+        // الفلتر الأساسي: خطط تمت مراجعتها ومكتملة داخلياً
+        $query->whereIn('status', ['reviewed', 'completed'])
+              ->whereNotNull('actual_review_date');
 
         if ($user->role->value === 'employee') {
             $query->where(function ($q) use ($user) {
@@ -114,19 +118,19 @@ class ContentPlanController extends Controller
                 $q->whereHas('users', function ($userQuery) use ($user) {
                     $userQuery->where('users.id', $user->id);
                 })
-                    // 2. أو هل له أي مهام داخل محتوى الخطة (منفذ أو مراجع)؟
-                    ->orWhereHas('posts', function ($postQuery) use ($user) {
-                        $postQuery->where(function ($subQuery) use ($user) {
-                            $subQuery->where('designer_id', $user->id)
-                                ->orWhereJsonContains('reviewer_ids', $user->id)
-                                ->orWhereJsonContains('reviewer_ids', (string)$user->id);
-                        });
-                    });
+                // 2. أو هل له مهام داخل محتوى الخطة (منفذ أو مراجع)؟
+                // تحسين الأداء 2: دمج شروط الـ orWhere في مستوى واحد لتسريع الاستعلام
+                ->orWhereHas('posts', function ($postQuery) use ($user) {
+                    $postQuery->where('designer_id', $user->id)
+                              ->orWhereJsonContains('reviewer_ids', $user->id)
+                              ->orWhereJsonContains('reviewer_ids', (string)$user->id);
+                });
             });
         }
 
-        // يمكنك استخدام get() بدلاً من paginate() إذا كنت تريد عرض كل الكروت في الشاشة بدون صفحات
-        return response()->json($query->orderBy('id', 'desc')->get());
+        $plans = $query->orderBy('id', 'desc')->paginate(8);
+
+        return response()->json($plans);
     }
 
     // إضافة خطة جديدة

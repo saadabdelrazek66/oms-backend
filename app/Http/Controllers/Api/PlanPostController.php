@@ -14,27 +14,40 @@ class PlanPostController extends Controller
     public function index(ContentPlan $plan)
     {
         $user = auth()->user();
-        
-        // نبدأ الاستعلام
-        $query = $plan->posts();
+        $isManager = $user->role->value === 'manager';
 
-        // 🔴 التعديل الأمني: إذا كان الموظف "Media Buyer"، نجلب له فقط المنشورات الممولة
-        if ($user->job_title === 'Media Buyer') {
-            $query->where('finance_status', 'ممول');
-        }
-
-        $posts = $query->get();
-
-        // التحقق مما إذا كان المستخدم الحالي هو "مسئول" لهذه الخطة
+        // 1. التحقق أولاً: هل المستخدم الحالي هو "مسئول" لهذه الخطة؟
         $isResponsible = DB::table('content_plan_user')
             ->where('content_plan_id', $plan->id)
             ->where('user_id', $user->id)
             ->where('task_role', 'responsible')
             ->exists();
+            
+        // نبدأ الاستعلام
+        $query = $plan->posts();
+
+        // 2. تطبيق فلتر الصفوف (اللوجيك الأمني)
+        if (!$isManager && !$isResponsible) {
+            // -- نحن الآن أمام موظف عادي (ليس مديراً وليس مسئولاً عن هذه الخطة) --
+
+            if ($user->job_title === 'Media Buyer') {
+                // الميديا باير يرى فقط المنشورات الممولة
+                $query->where('finance_status', 'ممول');
+            } else {
+                // باقي الموظفين (مصمم، مونتير، الخ) يرون فقط ما تم تكليفهم به
+                $query->where(function($q) use ($user) {
+                    $q->where('designer_id', $user->id)
+                      ->orWhereJsonContains('reviewer_ids', (string)$user->id)
+                      ->orWhereJsonContains('reviewer_ids', (int)$user->id);
+                });
+            }
+        }
+
+        $posts = $query->get();
 
         return response()->json([
             'data' => $posts,
-            'is_responsible' => $isResponsible // إرسال الحالة للفرونت إند
+            'is_responsible' => $isResponsible // سنستخدمها في الفرونت إند لإظهار الأعمدة
         ]);
     }
 
@@ -637,13 +650,24 @@ class PlanPostController extends Controller
         // --- 1. اللوجيك الأمني لتحديد الموظف المستهدف ---
         $targetUserId = ($isManager && $request->filled('user_id')) ? (int) $request->user_id : $user->id;
 
+        // جلب بيانات الموظف المستهدف لمعرفة مسماه الوظيفي (سواء كان هو نفسه أو مدير يستعرض مهامه)
+        $targetUser = ($targetUserId === $user->id) ? $user : \App\Models\User::find($targetUserId);
+        $isMediaBuyer = $targetUser && $targetUser->job_title === 'Media Buyer';
+
         // --- 2. بناء الاستعلام الأساسي للأدوار (مع جلب علاقة الخطة لاسمها) ---
-        $query = PlanPost::with('contentPlan:id,name') // جلب اسم الخطة لتسهيل العرض
-            ->where(function ($q) use ($targetUserId) {
+        $query = PlanPost::with('contentPlan:id,name'); // جلب اسم الخطة لتسهيل العرض
+
+        if ($isMediaBuyer) {
+            // 🔴 إذا كان الموظف Media Buyer: نجلب له كل المنشورات الممولة فقط (بصرف النظر عن التكليف)
+            $query->where('finance_status', 'ممول');
+        } else {
+            // 🔵 باقي الموظفين: نجلب لهم المهام التي تم تكليفهم بها كمنفذين أو مراجعين
+            $query->where(function ($q) use ($targetUserId) {
                 $q->where('designer_id', $targetUserId)
                     ->orWhereJsonContains('reviewer_ids', (string) $targetUserId)
                     ->orWhereJsonContains('reviewer_ids', (int) $targetUserId);
             });
+        }
 
         // --- 3. تطبيق الفلاتر الشاملة (Filters) ---
 
