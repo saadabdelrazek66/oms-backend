@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ContentPlanController;
 use App\Http\Controllers\Api\DepartmentController;
 use App\Http\Controllers\Api\PlanPostController;
 use App\Http\Controllers\Api\UserController;
+use App\Modules\QuickTasks\Controllers\QuickTaskController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -90,4 +91,14 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/system-logs', [App\Http\Controllers\Api\SystemLogController::class, 'index']);
     Route::delete('/system-logs', [App\Http\Controllers\Api\SystemLogController::class, 'destroy']);
+});
+
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/quick-tasks', [QuickTaskController::class, 'index']);
+    Route::post('/quick-tasks', [QuickTaskController::class, 'store']);
+    Route::post('/quick-tasks/{quickTask}/submit', [QuickTaskController::class, 'submit']);
+    Route::post('/quick-tasks/{quickTask}/review', [QuickTaskController::class, 'review']);
+    Route::post('/quick-tasks/{quickTask}', [QuickTaskController::class, 'update']);
+    Route::delete('/quick-tasks/{quickTask}', [QuickTaskController::class, 'destroy']);
 });

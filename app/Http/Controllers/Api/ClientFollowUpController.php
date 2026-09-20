@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ClientFollowUp;
 use App\Models\ContentPlan;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\File;
 use App\Http\Requests\FollowUpRequest;
 
 class ClientFollowUpController extends Controller
@@ -15,11 +15,17 @@ class ClientFollowUpController extends Controller
     public function store(FollowUpRequest $request, ContentPlan $content_plan)
     {
         $validated = $request->validated();
-        $validated['user_id'] = auth()->id(); // ربط المتابعة بالموظف الحالي
+        $validated['user_id'] = auth()->id();
 
-        // إذا كان هناك صورة مرفقة، قم برفعها داخل مجلد 'follow_ups' في الـ public disk
         if ($request->hasFile('image')) {
-            $validated['image_path'] = $request->file('image')->store('follow_ups', 'public');
+            $image = $request->file('image');
+            $imageName = time() . '_' . uniqid() . '.' . $image->getClientOriginalExtension();
+            
+            // نقل الملف فعلياً إلى مجلد public
+            $image->move(public_path('uploads/follow_ups'), $imageName);
+            
+            // حفظ المسار في الداتابيز ليكون سهل الاستدعاء
+            $validated['image_path'] = 'uploads/follow_ups/' . $imageName;
         }
 
         // ملاحظة: تأكد أن العلاقة في موديل ContentPlan اسمها clientFollowUps أو followUps حسب ما برمجته
@@ -35,12 +41,17 @@ class ClientFollowUpController extends Controller
         $validated = $request->validated();
 
         if ($request->hasFile('image')) {
-            // مسح الصورة القديمة من السيرفر إذا كانت موجودة
-            if ($followUp->image_path) {
-                Storage::disk('public')->delete($followUp->image_path);
+            // مسح الصورة القديمة مباشرة من مجلد public إذا كانت موجودة
+            if ($followUp->image_path && File::exists(public_path($followUp->image_path))) {
+                File::delete(public_path($followUp->image_path));
             }
+            
             // رفع الصورة الجديدة
-            $validated['image_path'] = $request->file('image')->store('follow_ups', 'public');
+            $image = $request->file('image');
+            $imageName = time() . '_' . uniqid() . '.' . $image->getClientOriginalExtension();
+            $image->move(public_path('uploads/follow_ups'), $imageName);
+            
+            $validated['image_path'] = 'uploads/follow_ups/' . $imageName;
         }
 
         $followUp->update($validated);
@@ -53,9 +64,9 @@ class ClientFollowUpController extends Controller
     {
         $followUp = \App\Models\ClientFollowUp::findOrFail($id);
 
-        // مسح الصورة من السيرفر قبل حذف السجل من قاعدة البيانات
-        if ($followUp->image_path) {
-            Storage::disk('public')->delete($followUp->image_path);
+        // مسح الصورة من مجلد public قبل حذف السجل من قاعدة البيانات
+        if ($followUp->image_path && File::exists(public_path($followUp->image_path))) {
+            File::delete(public_path($followUp->image_path));
         }
 
         $followUp->delete();
