@@ -61,6 +61,11 @@ class QuickTaskController extends Controller
 
     public function submit(Request $request, QuickTask $quickTask)
     {
+        $request->validate([
+            'feedback_text' => 'nullable|string|max:5000',
+            'voice_record' => 'nullable|file|mimes:audio/mpeg,mpga,mp3,wav,ogg,webm,mp4|max:10240',
+        ]);
+
         $task = $this->quickTaskService->submitTask(
             $quickTask,
             $request->only(['feedback_text']),

@@ -25,6 +25,11 @@ class Task extends Model
         'due_date' => 'datetime',
     ];
 
+    protected function serializeDate(\DateTimeInterface $date)
+    {
+        return $date->format('Y-m-d H:i:s');
+    }
+
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()

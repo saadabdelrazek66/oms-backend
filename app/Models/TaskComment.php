@@ -17,6 +17,11 @@ class TaskComment extends Model
             ->setDescriptionForEvent(fn(string $eventName) => "قام المستخدم بـ {$eventName} تعليق على المهمة");
     }
 
+    protected function serializeDate(\DateTimeInterface $date)
+    {
+        return $date->format('Y-m-d H:i:s');
+    }
+
     public function user()
     {
         return $this->belongsTo(User::class);

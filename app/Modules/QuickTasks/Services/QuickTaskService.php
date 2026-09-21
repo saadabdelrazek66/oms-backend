@@ -88,13 +88,15 @@ class QuickTaskService
             $voicePath = 'uploads/quick_tasks/voices/' . $fileName;
         }
 
-        $task->update(array_filter([
+        // التحديث الآمن: نتحقق من وجود المفتاح في $data، وإلا نستخدم القيمة القديمة
+        $task->update([
             'assigned_to' => $data['assigned_to'] ?? $task->assigned_to,
-            'title' => $data['title'] ?? $task->title,
-            'description' => $data['description'] ?? $task->description,
+            // نستخدم array_key_exists للسماح بحفظ الـ null إذا قام المدير بمسح النص
+            'title' => array_key_exists('title', $data) ? $data['title'] : $task->title,
+            'description' => array_key_exists('description', $data) ? $data['description'] : $task->description,
             'voice_record_path' => $voicePath,
             'deadline' => $data['deadline'] ?? $task->deadline,
-        ]));
+        ]);
 
         return $task;
     }

@@ -18,6 +18,7 @@ class Project extends Model
         'end_date',
     ];
 
+
     protected $appends = ['progress'];
 
     public function getActivitylogOptions(): LogOptions
@@ -28,6 +29,10 @@ class Project extends Model
             ->setDescriptionForEvent(fn(string $eventName) => "قام المستخدم بـ {$eventName} المشروع");
     }
 
+    protected function serializeDate(\DateTimeInterface $date)
+    {
+        return $date->format('Y-m-d H:i:s');
+    }
     // علاقة المشروع بالأقسام (Many-to-Many)
     public function departments()
     {
@@ -54,14 +59,16 @@ class Project extends Model
         // استخدام العلاقات المحملة لمنع مشكلة (N+1 Query Problem)
         if ($this->relationLoaded('tasks')) {
             $totalTasks = $this->tasks->count();
-            if ($totalTasks === 0) return 0;
+            if ($totalTasks === 0)
+                return 0;
             $completedTasks = $this->tasks->where('status', 'completed')->count();
             return round(($completedTasks / $totalTasks) * 100);
         }
 
         // في حالة استدعاء المشروع منفرداً
         $totalTasks = $this->tasks()->count();
-        if ($totalTasks === 0) return 0;
+        if ($totalTasks === 0)
+            return 0;
 
         $completedTasks = $this->tasks()->where('status', 'completed')->count();
         return round(($completedTasks / $totalTasks) * 100);

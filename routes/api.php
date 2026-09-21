@@ -77,7 +77,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/projects/{project}/tasks', [App\Http\Controllers\Api\TaskController::class, 'store']);
 
     Route::put('/tasks/{task}', [App\Http\Controllers\Api\TaskController::class, 'update']);
-    Route::patch('/tasks/{task}', [App\Http\Controllers\Api\TaskController::class, 'update']); // PATCH ممتازة للسحب والإفلات
+    Route::patch('/tasks/{task}', [App\Http\Controllers\Api\TaskController::class, 'update']);
     Route::delete('/tasks/{task}', [App\Http\Controllers\Api\TaskController::class, 'destroy']);
 
     Route::get('/tasks/{task}/comments', [App\Http\Controllers\Api\TaskCommentController::class, 'index']);

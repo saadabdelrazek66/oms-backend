@@ -53,10 +53,22 @@ class ContentPlanService
     }
 
     // إرسال الخطة للمراجعة الداخلية (من المسئول إلى المراجع)
-    public function submitForReview(ContentPlan $plan)
+    public function submitForReview(ContentPlan $plan, $userId)
     {
         $plan->status = 'under_review';
+        
+        if (is_null($plan->actual_initial_delivery_date)) {
+            $plan->actual_initial_delivery_date = now();
+        }
+        
         $plan->save();
+
+        $plan->reviewHistories()->create([
+            'reviewer_id' => $userId,
+            'action' => 'submitted',
+            'notes' => 'تم تسليم الخطة للمراجعة الداخلية.',
+        ]);
+
         return $plan;
     }
 

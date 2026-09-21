@@ -38,6 +38,8 @@ class ContentPlanRequest extends FormRequest
             // المراجعة يجب أن تنتهي قبل أو مع وقت التسليم النهائي
             'planned_review_date' => 'required_if:requires_review,true|nullable|date|before_or_equal:planned_delivery_date',
 
+            'planned_initial_delivery_date' => 'nullable|date|before_or_equal:planned_review_date',
+
             'responsible_ids' => 'nullable|array',
             'responsible_ids.*' => 'exists:users,id',
 

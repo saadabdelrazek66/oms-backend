@@ -161,10 +161,14 @@ class ContentPlanController extends Controller
 
     // --- مسارات الإجراءات (Actions) ---
 
-    public function submitForReview(ContentPlan $content_plan)
+    public function submitForReview(Request $request, ContentPlan $content_plan)
     {
-        $plan = $this->service->submitForReview($content_plan);
-        return response()->json(['message' => 'تم الإرسال للمراجعة الداخلية', 'data' => $plan->load('reviewHistories.reviewer')]);
+        $plan = $this->service->submitForReview($content_plan, $request->user()->id);
+        
+        return response()->json([
+            'message' => 'تم الإرسال للمراجعة الداخلية', 
+            'data' => $plan->load('reviewHistories.reviewer')
+        ]);
     }
 
     public function submitFinalDelivery(ContentPlan $content_plan)
@@ -197,9 +201,6 @@ class ContentPlanController extends Controller
         return response()->json(['message' => 'تم تحديث التفاصيل', 'data' => $content_plan]);
     }
 
-    // ==========================================
-    // ---- دالة استنساخ الخطة كقالب للشهر الجديد
-    // ==========================================
     public function duplicate(Request $request, ContentPlan $contentPlan)
     {
         $user = auth()->user();
@@ -207,22 +208,17 @@ class ContentPlanController extends Controller
             return response()->json(['message' => 'صلاحية الاستنساخ مخصصة للمدير فقط.'], 403);
         }
 
-        // 1. التحقق من التواريخ الجديدة القادمة من الواجهة
+        // 1. التحقق من التواريخ الجديدة بما فيها التسليم الابتدائي
         $validated = $request->validate([
             'start_date' => 'required|date',
             'end_date' => 'required|date|after_or_equal:start_date',
             'planned_delivery_date' => 'required|date|before_or_equal:start_date',
             'planned_review_date' => 'nullable|date|before_or_equal:planned_delivery_date',
-        ], [
-            'planned_delivery_date.before_or_equal' => 'موعد التسليم النهائي يجب أن يكون قبل أو مع تاريخ بداية الخطة.',
-            'planned_review_date.before_or_equal' => 'موعد إنهاء المراجعة يجب أن يكون قبل أو مع موعد التسليم النهائي.',
-            'end_date.after_or_equal' => 'تاريخ نهاية الخطة يجب أن يكون بعد أو مع تاريخ البداية.',
+            'planned_initial_delivery_date' => 'nullable|date|before_or_equal:planned_review_date', // الحقل الجديد
         ]);
 
-        // 2. استنساخ الخطة (replicate تنسخ البيانات الأساسية فقط بدون الـ ID والعلاقات)
         $newPlan = $contentPlan->replicate();
 
-        // 3. حقن التواريخ الجديدة وتصفير التواريخ الفعلية
         $newPlan->start_date = $validated['start_date'];
         $newPlan->end_date = $validated['end_date'];
         $newPlan->planned_delivery_date = $validated['planned_delivery_date'];
@@ -230,25 +226,25 @@ class ContentPlanController extends Controller
         if (isset($validated['planned_review_date'])) {
             $newPlan->planned_review_date = $validated['planned_review_date'];
         }
+        if (isset($validated['planned_initial_delivery_date'])) {
+            $newPlan->planned_initial_delivery_date = $validated['planned_initial_delivery_date'];
+        }
 
-        // تصفير بيانات التنفيذ وإعادة الحالة للوضع الافتراضي (استخدام pending بدلاً من قيد التخطيط)
+        // تصفير التواريخ الفعلية بما فيها التسليم الابتدائي
+        $newPlan->actual_initial_delivery_date = null;
         $newPlan->actual_delivery_date = null;
         $newPlan->actual_review_date = null;
         $newPlan->status = 'pending';
 
-        // 4. الحفظ
         $newPlan->save();
 
-        // 5. استنساخ فريق العمل المربوط بالخطة القديمة (بالطريقة الآمنة لتجنب دمج الأدوار)
-        $contentPlan->load('users'); // التأكد من تحميل المستخدمين
+        $contentPlan->load('users'); 
         foreach ($contentPlan->users as $teamMember) {
-            // استخدام attach بداخل الـ loop لضمان إضافة الشخص حتى لو كان له أكثر من دور
             $newPlan->users()->attach($teamMember->id, [
                 'task_role' => $teamMember->pivot->task_role
             ]);
         }
 
-        // تحميل العلاقات لإرسالها للواجهة
         $newPlan->load(['client', 'users']);
 
         return response()->json([
@@ -256,4 +252,5 @@ class ContentPlanController extends Controller
             'data' => $newPlan
         ], 201);
     }
+
 }

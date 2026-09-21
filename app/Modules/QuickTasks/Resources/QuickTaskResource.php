@@ -19,8 +19,10 @@ class QuickTaskResource extends JsonResource
             'status' => $this->status,
             'creator_name' => $this->creator ? $this->creator->name : 'غير محدد',
             'assignee_name' => $this->assignee ? $this->assignee->name : 'غير محدد',
+            'creator_phone' => $this->creator ? $this->creator->phone : null,
+            'assignee_phone' => $this->assignee ? $this->assignee->phone : null,
             'created_at' => $this->created_at ? $this->created_at->format('Y-m-d H:i A') : '',
-            
+
             'feedback_logs' => FeedbackLogResource::collection($this->whenLoaded('feedbackLogs')),
         ];
     }

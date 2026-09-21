@@ -42,14 +42,22 @@ class PlanPost extends Model
             ->setDescriptionForEvent(fn(string $eventName) => "قام المستخدم بـ {$eventName} منشور داخل الخطة");
     }
 
+    protected function serializeDate(\DateTimeInterface $date)
+    {
+        return $date->format('Y-m-d H:i:s');
+    }
+
     // العلاقات
-    public function plan() {
+    public function plan()
+    {
         return $this->belongsTo(ContentPlan::class, 'content_plan_id');
     }
-    public function designer() {
+    public function designer()
+    {
         return $this->belongsTo(User::class, 'designer_id');
     }
-    public function reviewer() {
+    public function reviewer()
+    {
         return $this->belongsTo(User::class, 'reviewer_id');
     }
     public function contentPlan()

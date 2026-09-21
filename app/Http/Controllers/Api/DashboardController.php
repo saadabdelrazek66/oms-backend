@@ -8,12 +8,13 @@ use Illuminate\Http\JsonResponse;
 use App\Models\Task;
 use App\Models\ContentPlan;
 use App\Models\PlanPost;
+use App\Modules\QuickTasks\Models\QuickTask;
 use Carbon\Carbon;
 
 class DashboardController extends Controller
 {
     /**
-     * جلب بيانات داشبورد الموظف بطريقة محسنة ومفصلة للمهام والمنشورات
+     * جلب بيانات داشبورد الموظف بطريقة محسنة ومفصلة للمهام، المنشورات، والمهام السريعة
      */
     public function employeeDashboard(Request $request): JsonResponse
     {
@@ -42,7 +43,15 @@ class DashboardController extends Controller
             ->selectRaw('SUM(CASE WHEN delivered_at IS NULL AND deadline < ? THEN 1 ELSE 0 END) as overdue', [$now])
             ->first();
 
-        // 3. أداء الشهر الحالي للمهام (Tasks KPI)
+        // 3. إحصائيات المهام السريعة (Quick Tasks Stats) - الجديد
+        $quickTaskStats = QuickTask::where('assigned_to', $user->id)
+            ->selectRaw('COUNT(*) as total')
+            ->selectRaw('SUM(CASE WHEN status = "completed" THEN 1 ELSE 0 END) as completed')
+            ->selectRaw('SUM(CASE WHEN status != "completed" THEN 1 ELSE 0 END) as pending')
+            ->selectRaw('SUM(CASE WHEN status != "completed" AND deadline < ? THEN 1 ELSE 0 END) as overdue', [$now])
+            ->first();
+
+        // 4. أداء الشهر الحالي للمهام (Tasks KPI)
         $monthTaskStats = Task::where('assigned_to', $user->id)
             ->whereBetween('created_at', [$startOfMonth, $endOfMonth])
             ->selectRaw('COUNT(*) as total')
@@ -53,7 +62,7 @@ class DashboardController extends Controller
             ? round(($monthTaskStats->completed / $monthTaskStats->total) * 100)
             : 0;
 
-        // 4. أداء الشهر الحالي للمنشورات (Posts KPI) - الجديد!
+        // 5. أداء الشهر الحالي للمنشورات (Posts KPI)
         $monthPostStats = PlanPost::where(function($q) use ($user) {
             $q->where('designer_id', $user->id)
                 ->orWhereJsonContains('reviewer_ids', $user->id)
@@ -68,7 +77,18 @@ class DashboardController extends Controller
             ? round(($monthPostStats->completed / $monthPostStats->total) * 100)
             : 0;
 
-        // 5. عدد الخطط المشارك بها
+        // 6. أداء الشهر الحالي للمهام السريعة (Quick Tasks KPI) - الجديد
+        $monthQuickTaskStats = QuickTask::where('assigned_to', $user->id)
+            ->whereBetween('created_at', [$startOfMonth, $endOfMonth])
+            ->selectRaw('COUNT(*) as total')
+            ->selectRaw('SUM(CASE WHEN status = "completed" THEN 1 ELSE 0 END) as completed')
+            ->first();
+
+        $quickTaskCompletionRate = $monthQuickTaskStats->total > 0
+            ? round(($monthQuickTaskStats->completed / $monthQuickTaskStats->total) * 100)
+            : 0;
+
+        // 7. عدد الخطط المشارك بها
         $totalPlans = ContentPlan::whereHas('users', function ($q) use ($user) {
             $q->where('users.id', $user->id);
         })->orWhereHas('posts', function ($q) use ($user) {
@@ -77,7 +97,7 @@ class DashboardController extends Controller
                 ->orWhereJsonContains('reviewer_ids', (string)$user->id);
         })->count();
 
-        // 6. الأولويات العاجلة: مهام
+        // 8. الأولويات العاجلة: مهام
         $upcomingTasks = Task::with('project:id,name')
             ->where('assigned_to', $user->id)
             ->where('status', '!=', 'completed')
@@ -86,7 +106,7 @@ class DashboardController extends Controller
             ->take(5)
             ->get();
 
-        // 7. الأولويات العاجلة: منشورات
+        // 9. الأولويات العاجلة: منشورات
         $upcomingPosts = PlanPost::with(['plan:id,client_id', 'plan.client:id,name'])
             ->where(function($q) use ($user) {
                 $q->where('designer_id', $user->id)
@@ -94,6 +114,15 @@ class DashboardController extends Controller
                     ->orWhereJsonContains('reviewer_ids', (string)$user->id);
             })
             ->whereNull('delivered_at')
+            ->whereNotNull('deadline')
+            ->orderBy('deadline', 'asc')
+            ->take(5)
+            ->get();
+
+        // 10. الأولويات العاجلة: مهام سريعة - الجديد
+        $upcomingQuickTasks = QuickTask::with('creator:id,name') // جلب اسم المدير الذي أنشأ المهمة
+            ->where('assigned_to', $user->id)
+            ->where('status', '!=', 'completed')
             ->whereNotNull('deadline')
             ->orderBy('deadline', 'asc')
             ->take(5)
@@ -116,6 +145,12 @@ class DashboardController extends Controller
                         'pending' => (int) $postStats->pending,
                         'overdue' => (int) $postStats->overdue,
                     ],
+                    'quick_tasks' => [
+                        'total' => (int) $quickTaskStats->total,
+                        'completed' => (int) $quickTaskStats->completed,
+                        'pending' => (int) $quickTaskStats->pending,
+                        'overdue' => (int) $quickTaskStats->overdue,
+                    ],
                     'total_plans' => $totalPlans,
                 ],
                 'kpi' => [
@@ -127,10 +162,15 @@ class DashboardController extends Controller
                         'completion_rate' => $postCompletionRate,
                         'total_this_month' => (int) $monthPostStats->total,
                     ],
+                    'quick_tasks' => [
+                        'completion_rate' => $quickTaskCompletionRate,
+                        'total_this_month' => (int) $monthQuickTaskStats->total,
+                    ],
                 ],
                 'priorities' => [
                     'upcoming_tasks' => $upcomingTasks,
                     'upcoming_posts' => $upcomingPosts,
+                    'upcoming_quick_tasks' => $upcomingQuickTasks,
                 ]
             ]
         ]);

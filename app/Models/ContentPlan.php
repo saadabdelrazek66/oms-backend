@@ -21,6 +21,8 @@ class ContentPlan extends Model
         'planned_review_date',
         'actual_review_date',
         'required_brief_fields',
+        'planned_initial_delivery_date',
+        'actual_initial_delivery_date',
         'start_date',
         'end_date',
         'reference_links',
@@ -35,7 +37,14 @@ class ContentPlan extends Model
         'actual_review_date' => 'datetime',
         'reference_links' => 'array',
         'required_brief_fields' => 'array',
+        'planned_initial_delivery_date' => 'date',
+        'actual_initial_delivery_date' => 'datetime',
     ];
+
+    protected function serializeDate(\DateTimeInterface $date)
+    {
+        return $date->format('Y-m-d H:i:s');
+    }
 
     public function getActivitylogOptions(): LogOptions
     {
