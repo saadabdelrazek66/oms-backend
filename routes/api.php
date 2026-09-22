@@ -16,9 +16,11 @@ Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
 
-Route::post('/login', [AuthController::class, 'login']);
+// 🛡️ مستوى المصادقة: 5 طلبات في الدقيقة لمنع التخمين العشوائي للباسورد
+Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:auth_limit');
 
-Route::middleware('auth:sanctum')->group(function () {
+// 🛡️ المستوى العام: 60 طلب في الدقيقة مدمج مع حماية Sanctum لكل مسارات النظام
+Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
 
     Route::get('/content-plans/{plan}/posts', [PlanPostController::class, 'index']);
@@ -39,6 +41,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/content-plans', [ContentPlanController::class, 'index']);
     Route::get('/plans/boards', [App\Http\Controllers\Api\ContentPlanController::class, 'boardPlans']);
+    
     // مسارات أفعال الخطط
     Route::post('content-plans/{content_plan}/submit-review', [ContentPlanController::class, 'submitForReview']);
     Route::post('content-plans/{content_plan}/final-delivery', [ContentPlanController::class, 'submitFinalDelivery']);
@@ -93,12 +96,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/system-logs', [App\Http\Controllers\Api\SystemLogController::class, 'destroy']);
 });
 
-
-Route::middleware('auth:sanctum')->group(function () {
-    Route::get('/quick-tasks', [QuickTaskController::class, 'index']);
-    Route::post('/quick-tasks', [QuickTaskController::class, 'store']);
-    Route::post('/quick-tasks/{quickTask}/submit', [QuickTaskController::class, 'submit']);
-    Route::post('/quick-tasks/{quickTask}/review', [QuickTaskController::class, 'review']);
-    Route::post('/quick-tasks/{quickTask}', [QuickTaskController::class, 'update']);
+// مجموعة المهام السريعة
+Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
+    Route::get('/quick-tasks', [QuickTaskController::class, 'index']); // جلب البيانات يعتمد على الحد العام 60 طلب
+    
+    // 🛡️ مستوى الرفع: 10 طلبات في الدقيقة لمنع إغراق السيرفر بالملفات الصوتية
+    Route::post('/quick-tasks', [QuickTaskController::class, 'store'])->middleware('throttle:uploads_limit');
+    Route::post('/quick-tasks/{quickTask}/submit', [QuickTaskController::class, 'submit'])->middleware('throttle:uploads_limit');
+    Route::post('/quick-tasks/{quickTask}/review', [QuickTaskController::class, 'review'])->middleware('throttle:uploads_limit');
+    Route::post('/quick-tasks/{quickTask}', [QuickTaskController::class, 'update'])->middleware('throttle:uploads_limit');
+    
     Route::delete('/quick-tasks/{quickTask}', [QuickTaskController::class, 'destroy']);
 });
