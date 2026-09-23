@@ -22,6 +22,9 @@ class ContentPlanRequest extends FormRequest
 
     public function rules(): array
     {
+        // التحقق من حالة المراجعة لبناء قواعد ديناميكية
+        $requiresReview = $this->input('requires_review', false);
+
         return [
             'client_id' => 'required|exists:clients,id',
             'plan_type' => 'required|string|min:2|max:100',
@@ -31,14 +34,16 @@ class ContentPlanRequest extends FormRequest
             'start_date' => 'required|date',
             'end_date' => 'required|date|after_or_equal:start_date',
 
-            // --- تواريخ التسليم والمراجعة (تم تعديل اللوجيك هنا) ---
-            // التسليم النهائي يجب أن يكون قبل أو مع بداية النشر (start_date)
-            'planned_delivery_date' => 'required|date|before_or_equal:start_date',
+            // --- تواريخ التسليم والمراجعة (التسلسل الزمني الصارم) ---
+            
+            // 1. التسليم النهائي قبل بداية الخطة
+            'planned_delivery_date' => 'required|date|before:start_date',
 
-            // المراجعة يجب أن تنتهي قبل أو مع وقت التسليم النهائي
-            'planned_review_date' => 'required_if:requires_review,true|nullable|date|before_or_equal:planned_delivery_date',
+            // 2. المراجعة قبل التسليم النهائي
+            'planned_review_date' => 'required_if:requires_review,true|nullable|date|before:planned_delivery_date',
 
-            'planned_initial_delivery_date' => 'nullable|date|before_or_equal:planned_review_date',
+            // 3. التسليم الابتدائي قبل المراجعة (إذا كانت مطلوبة) وإلا يكون قبل التسليم النهائي
+            'planned_initial_delivery_date' => 'nullable|date|before:' . ($requiresReview ? 'planned_review_date' : 'planned_delivery_date'),
 
             'responsible_ids' => 'nullable|array',
             'responsible_ids.*' => 'exists:users,id',
@@ -54,7 +59,6 @@ class ContentPlanRequest extends FormRequest
 
             // السماح بمصفوفة روابط بحد أقصى 15 رابط
             'reference_links' => 'nullable|array|max:15',
-            // التأكد أن كل عنصر داخل المصفوفة هو رابط حقيقي
             'reference_links.*' => 'required|url|max:1000',
 
             'required_brief_fields' => 'nullable|array',
@@ -64,6 +68,8 @@ class ContentPlanRequest extends FormRequest
 
     public function messages(): array
     {
+        $requiresReview = $this->input('requires_review', false);
+
         return [
             'client_id.required' => 'يرجى اختيار العميل المستهدف للخطة.',
             'client_id.exists' => 'العميل المحدد غير موجود في النظام.',
@@ -78,14 +84,16 @@ class ContentPlanRequest extends FormRequest
             'end_date.date' => 'صيغة تاريخ النهاية غير صحيحة.',
             'end_date.after_or_equal' => 'تاريخ النهاية لا يمكن أن يكون قبل تاريخ البداية.',
 
-            // --- رسائل التسليم والمراجعة (معدلة) ---
+            // --- رسائل التسليم والمراجعة المحدثة ---
             'planned_delivery_date.required' => 'موعد التسليم النهائي مطلوب.',
             'planned_delivery_date.date' => 'صيغة تاريخ التسليم غير صحيحة.',
-            'planned_delivery_date.before_or_equal' => 'موعد التسليم النهائي يجب أن يكون قبل أو مع تاريخ بداية تنفيذ الخطة.',
+            'planned_delivery_date.before' => 'موعد التسليم النهائي يجب أن يكون قبل تاريخ بداية تنفيذ الخطة.',
 
             'planned_review_date.required_if' => 'موعد إنهاء المراجعة مطلوب طالما تم تفعيل خيار المراجعة الداخلية.',
             'planned_review_date.date' => 'صيغة تاريخ المراجعة غير صحيحة.',
-            'planned_review_date.before_or_equal' => 'موعد المراجعة الداخلية يجب أن يكون قبل أو مع موعد التسليم النهائي.',
+            'planned_review_date.before' => 'موعد المراجعة الداخلية يجب أن يكون قبل موعد التسليم النهائي.',
+
+            'planned_initial_delivery_date.before' => 'موعد التسليم الابتدائي يجب أن يكون قبل ' . ($requiresReview ? 'موعد المراجعة الداخلية.' : 'موعد التسليم النهائي.'),
 
             'reviewer_ids.required_if' => 'يرجى تحديد مراجع واحد على الأقل طالما تم تفعيل خيار المراجعة الداخلية.',
 

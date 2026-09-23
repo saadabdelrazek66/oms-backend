@@ -19,8 +19,7 @@ Route::get('/user', function (Request $request) {
 // 🛡️ مستوى المصادقة: 5 طلبات في الدقيقة لمنع التخمين العشوائي للباسورد
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:auth_limit');
 
-// 🛡️ المستوى العام: 60 طلب في الدقيقة مدمج مع حماية Sanctum لكل مسارات النظام
-Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
+Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
 
     Route::get('/content-plans/{plan}/posts', [PlanPostController::class, 'index']);
@@ -97,10 +96,9 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 });
 
 // مجموعة المهام السريعة
-Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
-    Route::get('/quick-tasks', [QuickTaskController::class, 'index']); // جلب البيانات يعتمد على الحد العام 60 طلب
+Route::middleware(['auth:sanctum'])->group(function () {
+    Route::get('/quick-tasks', [QuickTaskController::class, 'index']);
     
-    // 🛡️ مستوى الرفع: 10 طلبات في الدقيقة لمنع إغراق السيرفر بالملفات الصوتية
     Route::post('/quick-tasks', [QuickTaskController::class, 'store'])->middleware('throttle:uploads_limit');
     Route::post('/quick-tasks/{quickTask}/submit', [QuickTaskController::class, 'submit'])->middleware('throttle:uploads_limit');
     Route::post('/quick-tasks/{quickTask}/review', [QuickTaskController::class, 'review'])->middleware('throttle:uploads_limit');
