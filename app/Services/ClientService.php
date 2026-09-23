@@ -4,12 +4,22 @@ namespace App\Services;
 
 use App\Models\Client;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
+use Illuminate\Http\UploadedFile;
 
 class ClientService
 {
-    // إضافة عميل جديد مع جهات الاتصال وروابط درايف
+    // إضافة عميل جديد مع جهات الاتصال وروابط درايف واللوجو
     public function createClient(array $data)
     {
+        // معالجة رفع اللوجو قبل الدخول في الـ Transaction
+        if (isset($data['logo']) && $data['logo'] instanceof UploadedFile) {
+            $file = $data['logo'];
+            $filename = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+            $file->move(public_path('uploads/clients'), $filename);
+            $data['logo'] = $filename;
+        }
+
         return DB::transaction(function () use ($data) {
             $client = Client::create($data);
 
@@ -27,9 +37,23 @@ class ClientService
         });
     }
 
-    // تعديل بيانات العميل وجهات اتصاله وروابط درايف
+    // تعديل بيانات العميل وجهات اتصاله وروابط درايف واللوجو
     public function updateClient(Client $client, array $data)
     {
+        // معالجة رفع اللوجو الجديد ومسح القديم
+        if (isset($data['logo']) && $data['logo'] instanceof UploadedFile) {
+            // مسح الصورة القديمة من السيرفر لو موجودة
+            if ($client->logo && File::exists(public_path('uploads/clients/' . $client->logo))) {
+                File::delete(public_path('uploads/clients/' . $client->logo));
+            }
+
+            // رفع الصورة الجديدة
+            $file = $data['logo'];
+            $filename = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+            $file->move(public_path('uploads/clients'), $filename);
+            $data['logo'] = $filename; // تحديث المصفوفة باسم الملف الجديد
+        }
+
         return DB::transaction(function () use ($client, $data) {
             $client->update($data);
 

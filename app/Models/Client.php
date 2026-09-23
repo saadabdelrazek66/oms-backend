@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 
 class Client extends Model
 {
@@ -19,13 +20,29 @@ class Client extends Model
         'instapay',
         'wallet',
         'social_links',
+        'logo',
     ];
+
 
     protected $casts = [
         'social_links' => 'array',
         'phones' => 'array',
         'emails' => 'array',
     ];
+
+    protected $appends = ['logo_url'];
+
+    protected function logoUrl(): Attribute
+    {
+        return Attribute::make(
+            get: function () {
+                if ($this->logo) {
+                    return asset('uploads/clients/' . $this->logo);
+                }
+                return null;
+            }
+        );
+    }
 
     protected function serializeDate(\DateTimeInterface $date)
     {

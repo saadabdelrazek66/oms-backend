@@ -7,6 +7,7 @@ use App\Models\Client;
 use App\Services\ClientService;
 use Illuminate\Http\Request;
 use App\Http\Requests\ClientRequest;
+use Illuminate\Support\Facades\File;
 
 class ClientController extends Controller
 {
@@ -23,6 +24,7 @@ class ClientController extends Controller
     // إضافة عميل جديد
     public function store(ClientRequest $request)
     {
+        // $request->validated() ستمرر ملف اللوجو تلقائياً للسيرفيس
         $client = $this->service->createClient($request->validated());
 
         return response()->json([
@@ -45,6 +47,10 @@ class ClientController extends Controller
     // حذف العميل
     public function destroy(Client $client)
     {
+        if ($client->logo && File::exists(public_path('uploads/clients/' . $client->logo))) {
+            File::delete(public_path('uploads/clients/' . $client->logo));
+        }
+
         $client->delete();
         return response()->json(['message' => 'تم حذف العميل بنجاح']);
     }

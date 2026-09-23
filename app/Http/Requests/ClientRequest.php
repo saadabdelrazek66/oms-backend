@@ -16,6 +16,9 @@ class ClientRequest extends FormRequest
         return [
             'name' => 'required|string|min:3|max:100',
 
+            // إضافة قاعدة التحقق الخاصة باللوجو هنا
+            'logo' => 'nullable|image|mimes:jpeg,png,jpg,webp,svg|max:2048', // حد أقصى 2 ميجا بايت
+
             // الهواتف (مصفوفة كائنات: الرقم + الواتساب)
             'phones' => 'nullable|array|max:10',
             'phones.*.number' => ['required_with:phones', 'string', 'regex:/^\+?[0-9]+$/', 'min:10', 'max:15'],
@@ -30,7 +33,7 @@ class ClientRequest extends FormRequest
             'bank_branch' => 'nullable|string|max:150',
             'bank_account' => ['nullable', 'string', 'regex:/^[a-zA-Z0-9]+$/', 'min:10', 'max:34'],
 
-            // أضف هذا الجزء داخل دالة قواعد التحقق (Rules)
+            // روابط الدرايف
             'drive_links' => 'nullable|array',
             'drive_links.*.id' => 'nullable|exists:client_drive_links,id', // يُستخدم في حالة التعديل
             'drive_links.*.title' => 'required_with:drive_links|string|max:255',
@@ -59,6 +62,11 @@ class ClientRequest extends FormRequest
             'name.required' => 'اسم العميل مطلوب.',
             'name.min' => 'اسم العميل يجب أن يتكون من 3 أحرف على الأقل.',
             'name.max' => 'اسم العميل يتجاوز الحد الأقصى للمسميات.',
+
+            // رسائل اللوجو المضافة
+            'logo.image' => 'الملف المرفوع يجب أن يكون صورة.',
+            'logo.mimes' => 'صيغة الصورة غير مدعومة. يسمح فقط بـ (jpeg, png, jpg, webp, svg).',
+            'logo.max' => 'حجم الصورة كبير جداً. الحد الأقصى المسموح به هو 2 ميجابايت.',
 
             // رسائل الهواتف المتعددة
             'phones.max' => 'لا يمكنك إضافة أكثر من 10 أرقام هاتف.',

@@ -80,6 +80,7 @@ class PlanPostController extends Controller
         $request->validate([
             'finance_cost' => 'nullable|numeric|min:0',
             'finance_days' => 'nullable|integer|min:0',
+            'tov' => 'nullable|string|max:5000',
         ]);
         
         $user = auth()->user();
