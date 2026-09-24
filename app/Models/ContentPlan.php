@@ -28,6 +28,8 @@ class ContentPlan extends Model
         'reference_links',
         'final_link',
         'notes',
+        'is_recurring',
+        'last_recurrence_handled_at',
     ];
 
     protected $casts = [
@@ -39,6 +41,8 @@ class ContentPlan extends Model
         'required_brief_fields' => 'array',
         'planned_initial_delivery_date' => 'date',
         'actual_initial_delivery_date' => 'datetime',
+        'is_recurring' => 'boolean',
+        'last_recurrence_handled_at' => 'datetime',
     ];
 
     protected function serializeDate(\DateTimeInterface $date)

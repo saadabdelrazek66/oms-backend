@@ -22,7 +22,7 @@ class PlanPostController extends Controller
             ->where('user_id', $user->id)
             ->where('task_role', 'responsible')
             ->exists();
-            
+
         // نبدأ الاستعلام
         $query = $plan->posts();
 
@@ -82,7 +82,7 @@ class PlanPostController extends Controller
             'finance_days' => 'nullable|integer|min:0',
             'tov' => 'nullable|string|max:5000',
         ]);
-        
+
         $user = auth()->user();
         $isManager = $user->role->value === 'manager';
         $isExecutor = $user->id == $post->designer_id;
@@ -806,18 +806,36 @@ class PlanPostController extends Controller
         ]);
     }
 
-    // ==========================================
-    // ---- دالة حذف منشور (صف) - للمدير فقط
-    // ==========================================
+
+// ==========================================
+// ---- دالة حذف منشور (صف) - للمدير والأكونت مانجر المسؤول
+// ==========================================
     public function destroy(PlanPost $post)
     {
         $user = auth()->user();
+        $isManager = $user->role->value === 'manager';
 
-        // --- جدار الحماية: التأكد من أن المستخدم مدير ---
-        // (تأكد من مطابقة طريقة فحص الدور لديك، إذا كانت $user->role فقط أو $user->role->value)
-        if ($user->role->value !== 'manager') {
+        // --- 1. جلب الخطة المرتبطة بالمنشور ---
+        $post->loadMissing('plan');
+        $plan = $post->plan;
+
+        if (!$plan) {
             return response()->json([
-                'message' => 'غير مصرح لك بحذف المهام. هذه الصلاحية مخصصة للمدير فقط.'
+                'message' => 'تعذر العثور على الخطة المرتبطة بهذا المنشور.'
+            ], 404);
+        }
+
+        // --- 2. التحقق من جدول (content_plan_user) لمعرفة هل المستخدم الحالي هو المسؤول ---
+        $isAccountManagerForThisPlan = DB::table('content_plan_user')
+            ->where('content_plan_id', $plan->id)
+            ->where('user_id', $user->id)
+            ->where('task_role', 'responsible')
+            ->exists();
+
+        // --- 3. جدار الحماية: المنع إذا لم يكن مديراً ولا الأكونت مانجر الخاص بالخطة ---
+        if (!$isManager && !$isAccountManagerForThisPlan) {
+            return response()->json([
+                'message' => 'غير مصرح لك. صلاحية الحذف مخصصة للمدير العام أو الأكونت مانجر المسؤول عن هذه الخطة فقط.'
             ], 403);
         }
 
@@ -830,6 +848,8 @@ class PlanPostController extends Controller
             ], 200);
 
         } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('خطأ في حذف منشور الخطة: ' . $e->getMessage());
+
             return response()->json([
                 'message' => 'حدث خطأ أثناء محاولة الحذف.'
             ], 500);

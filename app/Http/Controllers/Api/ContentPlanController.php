@@ -164,9 +164,9 @@ class ContentPlanController extends Controller
     public function submitForReview(Request $request, ContentPlan $content_plan)
     {
         $plan = $this->service->submitForReview($content_plan, $request->user()->id);
-        
+
         return response()->json([
-            'message' => 'تم الإرسال للمراجعة الداخلية', 
+            'message' => 'تم الإرسال للمراجعة الداخلية',
             'data' => $plan->load('reviewHistories.reviewer')
         ]);
     }
@@ -238,7 +238,7 @@ class ContentPlanController extends Controller
 
         $newPlan->save();
 
-        $contentPlan->load('users'); 
+        $contentPlan->load('users');
         foreach ($contentPlan->users as $teamMember) {
             $newPlan->users()->attach($teamMember->id, [
                 'task_role' => $teamMember->pivot->task_role
@@ -251,6 +251,35 @@ class ContentPlanController extends Controller
             'message' => 'تم استنساخ الخطة بنجاح لبدء شهر جديد 🚀',
             'data' => $newPlan
         ], 201);
+    }
+
+    // ==========================================
+    // ---- دالة تفعيل/إيقاف التكرار التلقائي للخطة
+    // ==========================================
+    public function toggleRecurrence(Request $request, ContentPlan $contentPlan)
+    {
+        $user = auth()->user();
+
+        // التحقق من الصلاحيات (للمدير فقط)
+        if ($user->role->value !== 'manager') {
+            return response()->json([
+                'message' => 'صلاحية التحكم في التكرار التلقائي مخصصة للمدير فقط.'
+            ], 403);
+        }
+
+        // عكس الحالة الحالية (إذا كانت true تصبح false والعكس)
+        $contentPlan->is_recurring = !$contentPlan->is_recurring;
+        $contentPlan->save();
+
+        $statusAr = $contentPlan->is_recurring ? 'مُفعل 🟢' : 'مُتوقف 🔴';
+
+        return response()->json([
+            'message' => "تم تحديث إعدادات الخطة. التكرار التلقائي الآن: {$statusAr}",
+            'data' => [
+                'id' => $contentPlan->id,
+                'is_recurring' => $contentPlan->is_recurring
+            ]
+        ], 200);
     }
 
 }
