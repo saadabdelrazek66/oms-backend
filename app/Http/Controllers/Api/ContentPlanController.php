@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\ContentPlanRequest;
 use App\Models\ContentPlan;
 use App\Services\ContentPlanService;
+use App\Rules\ValidDriveFileLink;
+use App\Enums\DriveLinkType;
 use Illuminate\Http\Request;
 
 class ContentPlanController extends Controller
@@ -16,7 +18,8 @@ class ContentPlanController extends Controller
     {
         $user = $request->user();
 
-        $query = ContentPlan::with(['users', 'client', 'reviewHistories.reviewer', 'clientFollowUps.user']);
+        // تمت إضافة 'client.driveLinks' لجلب الروابط مع العميل
+        $query = ContentPlan::with(['users', 'client.driveLinks', 'reviewHistories.reviewer', 'clientFollowUps.user']);
 
         // 1. صلاحيات الموظف (يرى خططه فقط)
         if ($user->role->value === 'employee') {
@@ -28,45 +31,36 @@ class ContentPlanController extends Controller
         // ==========================================
         // 🔍 الفلاتر الإدارية (Manager Filters)
         // ==========================================
-
-        // 2. فلتر بالعميل (لمعرفة كل خطط عميل معين)
         if ($request->filled('client_id')) {
             $query->where('client_id', $request->client_id);
         }
 
-        // 3. فلتر بحالة الخطة (إن وجدت لديك مثل: معلقة، قيد المراجعة، مكتملة)
         if ($request->filled('status')) {
             $query->where('status', $request->status);
         }
 
-        // 4. فلتر بنوع الخطة (مثال: SEO, Social Media)
         if ($request->filled('plan_type')) {
             $query->where('plan_type', 'like', '%' . $request->plan_type . '%');
         }
 
-        // 5. فلتر بموظف محدد (للمدير: لمراقبة خطط موظف معين)
         if ($user->role->value === 'manager' && $request->filled('employee_id')) {
             $query->whereHas('users', function ($q) use ($request) {
                 $q->where('users.id', $request->employee_id);
             });
         }
 
-        // 6. فلتر الخطط التي تتطلب مراجعة فقط (أو التي لا تتطلب)
         if ($request->has('requires_review')) {
             $query->where('requires_review', $request->boolean('requires_review'));
         }
 
-        // يجلب الخطط التي تجاوزت موعد التسليم ولم تكتمل بعد
         if ($request->boolean('is_overdue')) {
             $query->where('planned_delivery_date', '<', now()->format('Y-m-d'))
-                ->where('status', '!=', 'completed'); // تأكد من اسم حالة الاكتمال لديك
+                ->where('status', '!=', 'completed'); 
         }
 
         // ==========================================
         // 📅 فلاتر التواريخ (Date Ranges)
         // ==========================================
-
-        // 8. فلتر بفترة النشر (من - إلى)
         if ($request->filled('start_date') && $request->filled('end_date')) {
             $query->where(function ($q) use ($request) {
                 $q->whereBetween('start_date', [$request->start_date, $request->end_date])
@@ -74,12 +68,10 @@ class ContentPlanController extends Controller
             });
         }
 
-        // 9. فلتر بموعد التسليم النهائي (للبحث عن تسليمات هذا الأسبوع مثلاً)
         if ($request->filled('delivery_from') && $request->filled('delivery_to')) {
             $query->whereBetween('planned_delivery_date', [$request->delivery_from, $request->delivery_to]);
         }
 
-        // 10. فلتر بموعد المراجعة
         if ($request->filled('review_from') && $request->filled('review_to')) {
             $query->whereBetween('planned_review_date', [$request->review_from, $request->review_to]);
         }
@@ -98,7 +90,24 @@ class ContentPlanController extends Controller
             });
         }
 
-        return response()->json($query->orderBy('id', 'desc')->paginate(15));
+        // تنفيذ الاستعلام وتقسيم الصفحات
+        $plans = $query->orderBy('id', 'desc')->paginate(15);
+
+        // إضافة روابط الدرايف لكل خطة في الاستجابة
+        $plans->getCollection()->transform(function ($plan) {
+            $reviewFolder = $plan->client->driveLinks->where('title', \App\Enums\DriveLinkType::PLAN_REVIEW->value)->first();
+            $finalFolder = $plan->client->driveLinks->where('title', \App\Enums\DriveLinkType::PLAN_FINAL_DELIVERY->value)->first();
+
+            $plan->folders = [
+                // تأكد من استخدام اسم العمود الصحيح للرابط في جدول drive_links (هنا افترضنا أنه link)
+                'review_link' => $reviewFolder ? ($reviewFolder->url ?? $reviewFolder->link) : null, 
+                'final_delivery_link' => $finalFolder ? ($finalFolder->url ?? $finalFolder->link) : null,
+            ];
+
+            return $plan;
+        });
+
+        return response()->json($plans);
     }
 
     public function boardPlans(Request $request)
@@ -161,9 +170,19 @@ class ContentPlanController extends Controller
 
     // --- مسارات الإجراءات (Actions) ---
 
+   // ==========================================
+    // ---- دالة التسليم للمراجعة
+    // ==========================================
     public function submitForReview(Request $request, ContentPlan $content_plan)
     {
-        $plan = $this->service->submitForReview($content_plan, $request->user()->id);
+        $validated = $request->validate([
+            'link' => ['required', 'url', new \App\Rules\ValidDriveFileLink()],
+        ], [
+            'link.required' => 'يجب إرفاق لينك الخطة لإتمام عملية التسليم للمراجعة.',
+            'link.url' => 'الرابط المدخل غير صالح.'
+        ]);
+
+        $plan = $this->service->submitForReview($content_plan, $request->user()->id, $validated['link']);
         
         return response()->json([
             'message' => 'تم الإرسال للمراجعة الداخلية', 
@@ -171,10 +190,24 @@ class ContentPlanController extends Controller
         ]);
     }
 
-    public function submitFinalDelivery(ContentPlan $content_plan)
+    // ==========================================
+    // ---- دالة التسليم النهائي
+    // ==========================================
+    public function submitFinalDelivery(Request $request, ContentPlan $content_plan)
     {
-        $plan = $this->service->submitFinalDelivery($content_plan);
-        return response()->json(['message' => 'تم التسليم النهائي بنجاح', 'data' => $plan->load('reviewHistories.reviewer')]);
+        $validated = $request->validate([
+            'link' => ['required', 'url', new \App\Rules\ValidDriveFileLink()],
+        ], [
+            'link.required' => 'مطلوب إرفاق لينك الخطة لإتمام تسليمها للعميل.',
+            'link.url' => 'الرابط المدخل غير صالح.'
+        ]);
+
+        $plan = $this->service->submitFinalDelivery($content_plan, $validated['link']);
+
+        return response()->json([
+            'message' => 'تم التسليم النهائي بنجاح', 
+            'data' => $plan->load('reviewHistories.reviewer')
+        ]);
     }
 
     public function approvePlan(Request $request, ContentPlan $content_plan)
@@ -214,7 +247,7 @@ class ContentPlanController extends Controller
             'end_date' => 'required|date|after_or_equal:start_date',
             'planned_delivery_date' => 'required|date|before_or_equal:start_date',
             'planned_review_date' => 'nullable|date|before_or_equal:planned_delivery_date',
-            'planned_initial_delivery_date' => 'nullable|date|before_or_equal:planned_review_date', // الحقل الجديد
+            'planned_initial_delivery_date' => 'nullable|date|before_or_equal:planned_review_date', 
         ]);
 
         $newPlan = $contentPlan->replicate();
@@ -230,10 +263,11 @@ class ContentPlanController extends Controller
             $newPlan->planned_initial_delivery_date = $validated['planned_initial_delivery_date'];
         }
 
-        // تصفير التواريخ الفعلية بما فيها التسليم الابتدائي
+        // تصفير التواريخ الفعلية والروابط وحالة الخطة
         $newPlan->actual_initial_delivery_date = null;
         $newPlan->actual_delivery_date = null;
         $newPlan->actual_review_date = null;
+        $newPlan->final_link = null; // التعديل هنا: تصفير لينك الخطة
         $newPlan->status = 'pending';
 
         $newPlan->save();
@@ -252,5 +286,5 @@ class ContentPlanController extends Controller
             'data' => $newPlan
         ], 201);
     }
-
+    
 }

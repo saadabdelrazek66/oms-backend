@@ -4,7 +4,9 @@ namespace App\Services;
 
 use App\Models\ContentPlan;
 use Illuminate\Support\Facades\DB;
-
+use App\Rules\ValidDriveFileLink;
+use App\Enums\DriveLinkType;
+use Illuminate\Validation\ValidationException;
 class ContentPlanService
 {
     public function createPlan(array $data)
@@ -52,10 +54,10 @@ class ContentPlanService
         }
     }
 
-    // إرسال الخطة للمراجعة الداخلية (من المسئول إلى المراجع)
-    public function submitForReview(ContentPlan $plan, $userId)
+public function submitForReview(ContentPlan $plan, $userId, string $link)
     {
         $plan->status = 'under_review';
+        $plan->final_link = $link;
         
         if (is_null($plan->actual_initial_delivery_date)) {
             $plan->actual_initial_delivery_date = now();
@@ -72,12 +74,13 @@ class ContentPlanService
         return $plan;
     }
 
-    // التسليم النهائي للعميل (من المسئول)
-    public function submitFinalDelivery(ContentPlan $plan)
+    public function submitFinalDelivery(ContentPlan $plan, string $link)
     {
         $plan->actual_delivery_date = now();
         $plan->status = 'completed';
+        $plan->final_link = $link;
         $plan->save();
+        
         return $plan;
     }
 

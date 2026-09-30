@@ -29,6 +29,13 @@ class ClientDriveLink extends Model
     }
 
     // العلاقة: الرابط ينتمي لعميل
+    
+    // Accessor for backward/forward compatibility with 'link'
+    public function getLinkAttribute()
+    {
+        return $this->url;
+    }
+
     public function client()
     {
         return $this->belongsTo(Client::class);

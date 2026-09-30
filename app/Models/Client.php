@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
 use Illuminate\Database\Eloquent\Casts\Attribute;
+use App\Enums\DriveLinkType;
 
 class Client extends Model
 {
@@ -80,5 +81,13 @@ class Client extends Model
     public function driveLinks()
     {
         return $this->hasMany(ClientDriveLink::class);
+    }
+
+    /**
+     * التحقق مما إذا كان العميل يمتلك نوع رابط معين
+     */
+    public function hasDriveLinkType($type)
+    {
+        return $this->driveLinks()->where('title', $type)->exists();
     }
 }

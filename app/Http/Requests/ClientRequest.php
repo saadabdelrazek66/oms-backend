@@ -3,6 +3,8 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use App\Enums\DriveLinkType;
+use Illuminate\Validation\Rule;
 
 class ClientRequest extends FormRequest
 {
@@ -35,8 +37,11 @@ class ClientRequest extends FormRequest
 
             // روابط الدرايف
             'drive_links' => 'nullable|array',
-            'drive_links.*.id' => 'nullable|exists:client_drive_links,id', // يُستخدم في حالة التعديل
-            'drive_links.*.title' => 'required_with:drive_links|string|max:255',
+            'drive_links.*.id' => 'nullable|exists:client_drive_links,id',
+            'drive_links.*.title' => [
+                'required_with:drive_links',
+                Rule::in(DriveLinkType::values())
+            ],
             'drive_links.*.url' => 'required_with:drive_links|url|max:1000',
 
             'instapay' => ['nullable', 'string', 'regex:/^[a-zA-Z0-9_\.\-]+$/', 'max:50'],
@@ -104,6 +109,8 @@ class ClientRequest extends FormRequest
             'contacts.*.contact_name.required_with' => 'يرجى كتابة اسم جهة الاتصال.',
             'contacts.*.contact_method.in' => 'وسيلة الاتصال المحددة غير مدعومة.',
             'contacts.*.contact_details.required_with' => 'يرجى كتابة تفاصيل وسيلة الاتصال (مثل الرقم أو الرابط).',
+
+            'drive_links.*.title.in' => 'نوع رابط الدرايف المحدد غير صالح. يرجى اختيار أحد الأنواع المعتمدة من القائمة.',
         ];
     }
 }
