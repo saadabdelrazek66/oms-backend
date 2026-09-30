@@ -40,7 +40,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     Route::get('/content-plans', [ContentPlanController::class, 'index']);
     Route::get('/plans/boards', [App\Http\Controllers\Api\ContentPlanController::class, 'boardPlans']);
-    
+
     // مسارات أفعال الخطط
     Route::post('content-plans/{content_plan}/submit-review', [ContentPlanController::class, 'submitForReview']);
     Route::post('content-plans/{content_plan}/final-delivery', [ContentPlanController::class, 'submitFinalDelivery']);
@@ -73,6 +73,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/user-tasks', [PlanPostController::class, 'getUserTasks']);
 
     Route::post('/content-plans/{contentPlan}/duplicate', [App\Http\Controllers\Api\ContentPlanController::class, 'duplicate']);
+    Route::patch('/content-plans/{contentPlan}/toggle-recurrence', [ContentPlanController::class, 'toggleRecurrence']);
 
     Route::apiResource('projects', App\Http\Controllers\Api\ProjectController::class);
     Route::get('/projects/{project}/tasks', [App\Http\Controllers\Api\TaskController::class, 'index']);
@@ -98,11 +99,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
 // مجموعة المهام السريعة
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/quick-tasks', [QuickTaskController::class, 'index']);
-    
+
     Route::post('/quick-tasks', [QuickTaskController::class, 'store'])->middleware('throttle:uploads_limit');
     Route::post('/quick-tasks/{quickTask}/submit', [QuickTaskController::class, 'submit'])->middleware('throttle:uploads_limit');
     Route::post('/quick-tasks/{quickTask}/review', [QuickTaskController::class, 'review'])->middleware('throttle:uploads_limit');
     Route::post('/quick-tasks/{quickTask}', [QuickTaskController::class, 'update'])->middleware('throttle:uploads_limit');
-    
+
     Route::delete('/quick-tasks/{quickTask}', [QuickTaskController::class, 'destroy']);
 });
