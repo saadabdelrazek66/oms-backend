@@ -5,10 +5,13 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ContentPlanRequest;
 use App\Models\ContentPlan;
+use App\Models\User; // تمت الإضافة لجلب المديرين
 use App\Services\ContentPlanService;
 use App\Rules\ValidDriveFileLink;
 use App\Enums\DriveLinkType;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Notification; // تمت الإضافة
+use App\Modules\Notifications\Notifications\SystemNotification; // تمت الإضافة
 
 class ContentPlanController extends Controller
 {
@@ -18,19 +21,14 @@ class ContentPlanController extends Controller
     {
         $user = $request->user();
 
-        // تمت إضافة 'client.driveLinks' لجلب الروابط مع العميل
         $query = ContentPlan::with(['users', 'client.driveLinks', 'reviewHistories.reviewer', 'clientFollowUps.user']);
 
-        // 1. صلاحيات الموظف (يرى خططه فقط)
         if ($user->role->value === 'employee') {
             $query->whereHas('users', function ($q) use ($user) {
                 $q->where('users.id', $user->id);
             });
         }
 
-        // ==========================================
-        // 🔍 الفلاتر الإدارية (Manager Filters)
-        // ==========================================
         if ($request->filled('client_id')) {
             $query->where('client_id', $request->client_id);
         }
@@ -58,9 +56,6 @@ class ContentPlanController extends Controller
                 ->where('status', '!=', 'completed'); 
         }
 
-        // ==========================================
-        // 📅 فلاتر التواريخ (Date Ranges)
-        // ==========================================
         if ($request->filled('start_date') && $request->filled('end_date')) {
             $query->where(function ($q) use ($request) {
                 $q->whereBetween('start_date', [$request->start_date, $request->end_date])
@@ -76,9 +71,6 @@ class ContentPlanController extends Controller
             $query->whereBetween('planned_review_date', [$request->review_from, $request->review_to]);
         }
 
-        // ==========================================
-        // 🔎 فلتر البحث النصي الشامل (Global Search)
-        // ==========================================
         if ($request->filled('search')) {
             $search = $request->search;
             $query->where(function($q) use ($search) {
@@ -90,16 +82,13 @@ class ContentPlanController extends Controller
             });
         }
 
-        // تنفيذ الاستعلام وتقسيم الصفحات
         $plans = $query->orderBy('id', 'desc')->paginate(15);
 
-        // إضافة روابط الدرايف لكل خطة في الاستجابة
         $plans->getCollection()->transform(function ($plan) {
-            $reviewFolder = $plan->client->driveLinks->where('title', \App\Enums\DriveLinkType::PLAN_REVIEW->value)->first();
-            $finalFolder = $plan->client->driveLinks->where('title', \App\Enums\DriveLinkType::PLAN_FINAL_DELIVERY->value)->first();
+            $reviewFolder = $plan->client->driveLinks->where('title', DriveLinkType::PLAN_REVIEW->value)->first();
+            $finalFolder = $plan->client->driveLinks->where('title', DriveLinkType::PLAN_FINAL_DELIVERY->value)->first();
 
             $plan->folders = [
-                // تأكد من استخدام اسم العمود الصحيح للرابط في جدول drive_links (هنا افترضنا أنه link)
                 'review_link' => $reviewFolder ? ($reviewFolder->url ?? $reviewFolder->link) : null, 
                 'final_delivery_link' => $finalFolder ? ($finalFolder->url ?? $finalFolder->link) : null,
             ];
@@ -114,21 +103,16 @@ class ContentPlanController extends Controller
     {
         $user = $request->user();
 
-        // تحسين الأداء 1: استخدام with لجلب العميل يمنع مشكلة N+1 Query
         $query = ContentPlan::with(['client']);
 
-        // الفلتر الأساسي: خطط تمت مراجعتها ومكتملة داخلياً
         $query->whereIn('status', ['reviewed', 'completed'])
               ->whereNotNull('actual_review_date');
 
         if ($user->role->value === 'employee') {
             $query->where(function ($q) use ($user) {
-                // 1. هل هو المسؤول عن الخطة بشكل عام؟
                 $q->whereHas('users', function ($userQuery) use ($user) {
                     $userQuery->where('users.id', $user->id);
                 })
-                // 2. أو هل له مهام داخل محتوى الخطة (منفذ أو مراجع)؟
-                // تحسين الأداء 2: دمج شروط الـ orWhere في مستوى واحد لتسريع الاستعلام
                 ->orWhereHas('posts', function ($postQuery) use ($user) {
                     $postQuery->where('designer_id', $user->id)
                               ->orWhereJsonContains('reviewer_ids', $user->id)
@@ -142,23 +126,45 @@ class ContentPlanController extends Controller
         return response()->json($plans);
     }
 
-    // إضافة خطة جديدة
+    // ==========================================
+    // 1. إضافة خطة جديدة (إشعار للموظفين)
+    // ==========================================
     public function store(ContentPlanRequest $request)
     {
         $plan = $this->service->createPlan($request->validated());
+        $plan->load(['client', 'users']);
+
+        Notification::send($plan->users, new SystemNotification([
+            'title' => 'إسناد خطة عمل جديدة 🆕',
+            'body' => "تم تعيينك للعمل على خطة المحتوى الخاصة بالعميل {$plan->client->name}.",
+            'url' => "/plans/{$plan->id}",
+            'icon' => 'document-add'
+        ]));
+
         return response()->json([
             'message' => 'تم إنشاء الخطة بنجاح',
-            'data' => $plan->load('client', 'reviewHistories.reviewer')
+            'data' => $plan->load('reviewHistories.reviewer')
         ], 201);
     }
 
-    // تعديل خطة موجودة
+    // ==========================================
+    // 2. تعديل خطة موجودة (إشعار للموظفين)
+    // ==========================================
     public function update(ContentPlanRequest $request, ContentPlan $content_plan)
     {
         $plan = $this->service->updatePlan($content_plan, $request->validated());
+        $plan->load(['client', 'users']);
+
+        Notification::send($plan->users, new SystemNotification([
+            'title' => 'تحديث في تفاصيل الخطة 🔄',
+            'body' => "تم تعديل تفاصيل ومواعيد خطة العميل {$plan->client->name}.",
+            'url' => "/plans/{$plan->id}",
+            'icon' => 'refresh'
+        ]));
+
         return response()->json([
             'message' => 'تم التعديل بنجاح',
-            'data' => $plan->load('client', 'reviewHistories.reviewer')
+            'data' => $plan->load('reviewHistories.reviewer')
         ]);
     }
 
@@ -168,10 +174,8 @@ class ContentPlanController extends Controller
         return response()->json(['message' => 'تم الحذف بنجاح']);
     }
 
-    // --- مسارات الإجراءات (Actions) ---
-
-   // ==========================================
-    // ---- دالة التسليم للمراجعة
+    // ==========================================
+    // 3. التسليم للمراجعة (إشعار للمديرين)
     // ==========================================
     public function submitForReview(Request $request, ContentPlan $content_plan)
     {
@@ -183,6 +187,15 @@ class ContentPlanController extends Controller
         ]);
 
         $plan = $this->service->submitForReview($content_plan, $request->user()->id, $validated['link']);
+        $plan->load('client');
+
+        $managers = User::where('role', 'manager')->get();
+        Notification::send($managers, new SystemNotification([
+            'title' => 'خطة بانتظار المراجعة ⏳',
+            'body' => "قام {$request->user()->name} بتسليم خطة العميل {$plan->client->name} للمراجعة الداخلية.",
+            'url' => "/plans/{$plan->id}",
+            'icon' => 'clock'
+        ]));
 
         return response()->json([
             'message' => 'تم الإرسال للمراجعة الداخلية',
@@ -191,7 +204,7 @@ class ContentPlanController extends Controller
     }
 
     // ==========================================
-    // ---- دالة التسليم النهائي
+    // 4. التسليم النهائي (إشعار للمديرين)
     // ==========================================
     public function submitFinalDelivery(Request $request, ContentPlan $content_plan)
     {
@@ -203,6 +216,15 @@ class ContentPlanController extends Controller
         ]);
 
         $plan = $this->service->submitFinalDelivery($content_plan, $validated['link']);
+        $plan->load('client');
+
+        $managers = User::where('role', 'manager')->get();
+        Notification::send($managers, new SystemNotification([
+            'title' => 'تسليم نهائي مكتمل 🚀',
+            'body' => "تم التسليم النهائي لخطة العميل {$plan->client->name} للعميل بنجاح.",
+            'url' => "/plans/{$plan->id}",
+            'icon' => 'rocket'
+        ]));
 
         return response()->json([
             'message' => 'تم التسليم النهائي بنجاح', 
@@ -210,17 +232,47 @@ class ContentPlanController extends Controller
         ]);
     }
 
+    // ==========================================
+    // 5. اعتماد الخطة (إشعار للموظفين)
+    // ==========================================
     public function approvePlan(Request $request, ContentPlan $content_plan)
     {
         $plan = $this->service->approvePlan($content_plan, $request->user()->id);
-        return response()->json(['message' => 'تم اعتماد الخطة وهي الآن جاهزة للتسليم', 'data' => $plan->load('reviewHistories.reviewer')]);
+        $plan->load(['client', 'users']);
+
+        Notification::send($plan->users, new SystemNotification([
+            'title' => 'تم اعتماد الخطة بنجاح ✅',
+            'body' => "تم اعتماد خطة العميل {$plan->client->name} وهي الآن جاهزة للتسليم النهائي.",
+            'url' => "/plans/{$plan->id}",
+            'icon' => 'check-circle'
+        ]));
+
+        return response()->json([
+            'message' => 'تم اعتماد الخطة وهي الآن جاهزة للتسليم', 
+            'data' => $plan->load('reviewHistories.reviewer')
+        ]);
     }
 
+    // ==========================================
+    // 6. رفض الخطة (إشعار للموظفين)
+    // ==========================================
     public function rejectPlan(Request $request, ContentPlan $content_plan)
     {
         $request->validate(['notes' => 'required|string']);
         $plan = $this->service->rejectPlan($content_plan, $request->user()->id, $request->notes);
-        return response()->json(['message' => 'تم رفض الخطة وإرسال الملاحظات', 'data' => $plan->load('reviewHistories.reviewer')]);
+        $plan->load(['client', 'users']);
+
+        Notification::send($plan->users, new SystemNotification([
+            'title' => 'تعديلات مطلوبة على الخطة ⚠️',
+            'body' => "قام المدير بإضافة ملاحظات على خطة العميل {$plan->client->name}، يرجى تعديلها.",
+            'url' => "/plans/{$plan->id}",
+            'icon' => 'exclamation-circle'
+        ]));
+
+        return response()->json([
+            'message' => 'تم رفض الخطة وإرسال الملاحظات', 
+            'data' => $plan->load('reviewHistories.reviewer')
+        ]);
     }
 
     public function updateDetails(Request $request, ContentPlan $content_plan)
@@ -234,6 +286,9 @@ class ContentPlanController extends Controller
         return response()->json(['message' => 'تم تحديث التفاصيل', 'data' => $content_plan]);
     }
 
+    // ==========================================
+    // 7. استنساخ الخطة (إشعار للموظفين)
+    // ==========================================
     public function duplicate(Request $request, ContentPlan $contentPlan)
     {
         $user = auth()->user();
@@ -241,7 +296,6 @@ class ContentPlanController extends Controller
             return response()->json(['message' => 'صلاحية الاستنساخ مخصصة للمدير فقط.'], 403);
         }
 
-        // 1. التحقق من التواريخ الجديدة بما فيها التسليم الابتدائي
         $validated = $request->validate([
             'start_date' => 'required|date',
             'end_date' => 'required|date|after_or_equal:start_date',
@@ -263,11 +317,10 @@ class ContentPlanController extends Controller
             $newPlan->planned_initial_delivery_date = $validated['planned_initial_delivery_date'];
         }
 
-        // تصفير التواريخ الفعلية والروابط وحالة الخطة
         $newPlan->actual_initial_delivery_date = null;
         $newPlan->actual_delivery_date = null;
         $newPlan->actual_review_date = null;
-        $newPlan->final_link = null; // التعديل هنا: تصفير لينك الخطة
+        $newPlan->final_link = null; 
         $newPlan->status = 'pending';
 
         $newPlan->save();
@@ -281,27 +334,29 @@ class ContentPlanController extends Controller
 
         $newPlan->load(['client', 'users']);
 
+        Notification::send($newPlan->users, new SystemNotification([
+            'title' => 'بدء خطة شهر جديد 📅',
+            'body' => "تم استنساخ وتجديد خطة العميل {$newPlan->client->name} لشهر جديد وتم تعيينك بها.",
+            'url' => "/plans/{$newPlan->id}",
+            'icon' => 'calendar'
+        ]));
+
         return response()->json([
             'message' => 'تم استنساخ الخطة بنجاح لبدء شهر جديد 🚀',
             'data' => $newPlan
         ], 201);
     }
     
-    // ==========================================
-    // ---- دالة تفعيل/إيقاف التكرار التلقائي للخطة
-    // ==========================================
     public function toggleRecurrence(Request $request, ContentPlan $contentPlan)
     {
         $user = auth()->user();
 
-        // التحقق من الصلاحيات (للمدير فقط)
         if ($user->role->value !== 'manager') {
             return response()->json([
                 'message' => 'صلاحية التحكم في التكرار التلقائي مخصصة للمدير فقط.'
             ], 403);
         }
 
-        // عكس الحالة الحالية (إذا كانت true تصبح false والعكس)
         $contentPlan->is_recurring = !$contentPlan->is_recurring;
         $contentPlan->save();
 
@@ -315,5 +370,4 @@ class ContentPlanController extends Controller
             ]
         ], 200);
     }
-
 }
