@@ -99,14 +99,39 @@ class ContentPlanController extends Controller
         return response()->json($plans);
     }
 
+    public function show(ContentPlan $content_plan)
+    {
+        $user = auth()->user();
+        $isManager = $user->role->value === 'manager';
+
+        if (!$isManager && $content_plan->requires_review && !in_array($content_plan->status, ['reviewed', 'completed'])) {
+            return response()->json([
+                'message' => 'عذراً، لا يمكن فتح لوحة المحتوى قبل اعتماد الخطة داخلياً من قِبل الإدارة.'
+            ], 403);
+        }
+
+        $content_plan->load(['client', 'users', 'items', 'folders']);
+        return response()->json([
+            'data' => $content_plan
+        ]);
+    }
+
     public function boardPlans(Request $request)
     {
         $user = $request->user();
+        $isManager = $user->role->value === 'manager';
 
         $query = ContentPlan::with(['client', 'items']);
 
-        $query->whereIn('status', ['reviewed', 'completed'])
-              ->whereNotNull('actual_review_date');
+        if (!$isManager) {
+            $query->where(function ($q) {
+                $q->where('requires_review', false)
+                  ->orWhere(function ($sub) {
+                      $sub->whereIn('status', ['reviewed', 'completed'])
+                          ->whereNotNull('actual_review_date');
+                  });
+            });
+        }
 
         if ($user->role->value === 'employee') {
             $query->where(function ($q) use ($user) {

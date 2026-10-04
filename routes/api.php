@@ -55,6 +55,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
 
     Route::get('/content-plans', [ContentPlanController::class, 'index']);
+    Route::get('/content-plans/{content_plan}', [ContentPlanController::class, 'show']);
     Route::get('/plans/boards', [App\Http\Controllers\Api\ContentPlanController::class, 'boardPlans']);
 
     // مسارات أفعال الخطط

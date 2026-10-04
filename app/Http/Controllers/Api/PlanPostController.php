@@ -19,6 +19,13 @@ class PlanPostController extends Controller
         $user = auth()->user();
         $isManager = $user->role->value === 'manager';
 
+        // الحماية الأمنية: الموظف لا يمكنه فتح لوحة المحتوى قبل اعتماد الخطة داخلياً
+        if (!$isManager && $plan->requires_review && !in_array($plan->status, ['reviewed', 'completed'])) {
+            return response()->json([
+                'message' => 'عذراً، لا يمكن فتح لوحة المحتوى قبل اعتماد الخطة داخلياً من قِبل الإدارة.'
+            ], 403);
+        }
+
         // 1. التحقق أولاً: هل المستخدم الحالي هو "مسئول" لهذه الخطة؟
         $isResponsible = DB::table('content_plan_user')
             ->where('content_plan_id', $plan->id)
@@ -62,6 +69,15 @@ class PlanPostController extends Controller
             'is_urgent' => 'nullable|boolean'
         ]);
 
+        $user = auth()->user();
+        $isManager = $user->role->value === 'manager';
+
+        if (!$isManager && $plan->requires_review && !in_array($plan->status, ['reviewed', 'completed'])) {
+            return response()->json([
+                'message' => 'عذراً، لا يمكن إضافة بوستات قبل اعتماد الخطة داخلياً من قِبل الإدارة.'
+            ], 403);
+        }
+
         $isUrgent = $request->boolean('is_urgent');
 
         $post = $plan->posts()->create([
@@ -97,6 +113,43 @@ class PlanPostController extends Controller
         $user = auth()->user();
         $isManager = $user->role->value === 'manager';
         $isExecutor = $user->id == $post->designer_id;
+        $post->loadMissing('plan');
+        $plan = $post->plan;
+
+        if ($plan && !$isManager && $plan->requires_review && !in_array($plan->status, ['reviewed', 'completed'])) {
+            return response()->json([
+                'message' => 'عذراً، لا يمكن تعديل البوستات قبل اعتماد الخطة داخلياً من قِبل الإدارة.'
+            ], 403);
+        }
+
+        // تحديد ما إذا كان المستخدم الحالي هو الأكونت مانجر (بالمسمى الوظيفي أو بالمسؤولية عن هذه الخطة)
+        $isAccountManager = ($user->job_title === 'Account Manager') || ($plan && DB::table('content_plan_user')
+            ->where('content_plan_id', $plan->id)
+            ->where('user_id', $user->id)
+            ->where('task_role', 'responsible')
+            ->exists());
+
+        // --- 0. حماية تحديث تاريخ النشر المخطط (target_date) ---
+        if ($request->has('target_date')) {
+            $request->validate([
+                'target_date' => 'required|date',
+            ]);
+
+            // 1. يتقفل التحديث بعد التسليم النهائي للخطة
+            $isPlanDelivered = $plan && ($plan->status === 'completed' || !is_null($plan->actual_delivery_date));
+            if ($isPlanDelivered) {
+                return response()->json([
+                    'message' => 'عذراً، تم قفل تعديل تاريخ النشر المخطط نظراً لإتمام التسليم النهائي للخطة.'
+                ], 403);
+            }
+
+            // 2. السماح فقط للمدير العام والأكونت مانجر
+            if (!$isManager && !$isAccountManager) {
+                return response()->json([
+                    'message' => 'غير مصرح لك. صلاحية تحديث تاريخ النشر المخطط مخصصة للمدير العام أو الأكونت مانجر المسؤول فقط.'
+                ], 403);
+            }
+        }
 
         // --- 1. قفل المراجعة الذكي (Review Lock-down) ---
         if (!$isManager && $isExecutor) {
@@ -178,7 +231,13 @@ class PlanPostController extends Controller
         $lockedFields = is_array($post->locked_fields) ? $post->locked_fields : (json_decode($post->locked_fields, true) ?? []);
 
         if (!$isManager) {
-            $attemptedToChangeLocked = array_intersect($changedFields, $lockedFields);
+            // استثناء target_date للأكونت مانجر من الحقول المقفولة إذا تم تعيينه
+            $lockedToCheck = $lockedFields;
+            if ($isAccountManager) {
+                $lockedToCheck = array_values(array_diff($lockedFields, ['target_date']));
+            }
+
+            $attemptedToChangeLocked = array_intersect($changedFields, $lockedToCheck);
 
             if (!empty($attemptedToChangeLocked)) {
                 return response()->json([
@@ -193,7 +252,8 @@ class PlanPostController extends Controller
                     'department_approved_at',
                     'manager_approved_at',
                     'actual_publish_status',
-                    'delivered_at'
+                    'delivered_at',
+                    'target_date'
                 ];
 
                 $fieldsToLock = array_diff($changedFields, $excludedFromLock);
