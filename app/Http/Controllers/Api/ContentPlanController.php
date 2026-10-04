@@ -21,7 +21,7 @@ class ContentPlanController extends Controller
     {
         $user = $request->user();
 
-        $query = ContentPlan::with(['users', 'client.driveLinks', 'reviewHistories.reviewer', 'clientFollowUps.user']);
+        $query = ContentPlan::with(['users', 'client.driveLinks', 'reviewHistories.reviewer', 'clientFollowUps.user', 'items']);
 
         if ($user->role->value === 'employee') {
             $query->whereHas('users', function ($q) use ($user) {
@@ -103,7 +103,7 @@ class ContentPlanController extends Controller
     {
         $user = $request->user();
 
-        $query = ContentPlan::with(['client']);
+        $query = ContentPlan::with(['client', 'items']);
 
         $query->whereIn('status', ['reviewed', 'completed'])
               ->whereNotNull('actual_review_date');
@@ -132,12 +132,12 @@ class ContentPlanController extends Controller
     public function store(ContentPlanRequest $request)
     {
         $plan = $this->service->createPlan($request->validated());
-        $plan->load(['client', 'users']);
+        $plan->load(['client', 'users', 'items']);
 
         Notification::send($plan->users, new SystemNotification([
             'title' => 'إسناد خطة عمل جديدة 🆕',
             'body' => "تم تعيينك للعمل على خطة المحتوى الخاصة بالعميل {$plan->client->name}.",
-            'url' => "/plans/{$plan->id}",
+            'url' => "/content-plans/{$plan->id}",
             'icon' => 'document-add'
         ]));
 
@@ -158,7 +158,7 @@ class ContentPlanController extends Controller
         Notification::send($plan->users, new SystemNotification([
             'title' => 'تحديث في تفاصيل الخطة 🔄',
             'body' => "تم تعديل تفاصيل ومواعيد خطة العميل {$plan->client->name}.",
-            'url' => "/plans/{$plan->id}",
+            'url' => "/content-plans/{$plan->id}",
             'icon' => 'refresh'
         ]));
 
@@ -193,7 +193,7 @@ class ContentPlanController extends Controller
         Notification::send($managers, new SystemNotification([
             'title' => 'خطة بانتظار المراجعة ⏳',
             'body' => "قام {$request->user()->name} بتسليم خطة العميل {$plan->client->name} للمراجعة الداخلية.",
-            'url' => "/plans/{$plan->id}",
+            'url' => "/content-plans/{$plan->id}",
             'icon' => 'clock'
         ]));
 
@@ -222,7 +222,7 @@ class ContentPlanController extends Controller
         Notification::send($managers, new SystemNotification([
             'title' => 'تسليم نهائي مكتمل 🚀',
             'body' => "تم التسليم النهائي لخطة العميل {$plan->client->name} للعميل بنجاح.",
-            'url' => "/plans/{$plan->id}",
+            'url' => "/content-plans/{$plan->id}",
             'icon' => 'rocket'
         ]));
 
@@ -243,7 +243,7 @@ class ContentPlanController extends Controller
         Notification::send($plan->users, new SystemNotification([
             'title' => 'تم اعتماد الخطة بنجاح ✅',
             'body' => "تم اعتماد خطة العميل {$plan->client->name} وهي الآن جاهزة للتسليم النهائي.",
-            'url' => "/plans/{$plan->id}",
+            'url' => "/content-plans/{$plan->id}",
             'icon' => 'check-circle'
         ]));
 
@@ -265,7 +265,7 @@ class ContentPlanController extends Controller
         Notification::send($plan->users, new SystemNotification([
             'title' => 'تعديلات مطلوبة على الخطة ⚠️',
             'body' => "قام المدير بإضافة ملاحظات على خطة العميل {$plan->client->name}، يرجى تعديلها.",
-            'url' => "/plans/{$plan->id}",
+            'url' => "/content-plans/{$plan->id}",
             'icon' => 'exclamation-circle'
         ]));
 
@@ -337,7 +337,7 @@ class ContentPlanController extends Controller
         Notification::send($newPlan->users, new SystemNotification([
             'title' => 'بدء خطة شهر جديد 📅',
             'body' => "تم استنساخ وتجديد خطة العميل {$newPlan->client->name} لشهر جديد وتم تعيينك بها.",
-            'url' => "/plans/{$newPlan->id}",
+            'url' => "/content-plans/{$newPlan->id}",
             'icon' => 'calendar'
         ]));
 

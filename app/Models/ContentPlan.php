@@ -14,6 +14,7 @@ class ContentPlan extends Model
         'name', // إضافة الاسم هنا
         'client_id',
         'plan_type',
+        'total_estimated_hours',
         'requires_review',
         'status',
         'planned_delivery_date',
@@ -41,6 +42,7 @@ class ContentPlan extends Model
         'required_brief_fields' => 'array',
         'planned_initial_delivery_date' => 'date',
         'actual_initial_delivery_date' => 'datetime',
+        'total_estimated_hours' => 'float',
         'is_recurring' => 'boolean',
         'last_recurrence_handled_at' => 'datetime',
     ];
@@ -147,5 +149,10 @@ class ContentPlan extends Model
     public function posts()
     {
         return $this->hasMany(PlanPost::class)->orderBy('target_date', 'asc');
+    }
+
+    public function items()
+    {
+        return $this->hasMany(ContentPlanItem::class, 'content_plan_id')->orderBy('id');
     }
 }

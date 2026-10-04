@@ -63,6 +63,14 @@ class ContentPlanRequest extends FormRequest
 
             'required_brief_fields' => 'nullable|array',
             'required_brief_fields.*' => 'string',
+            'items' => 'nullable|array',
+            'items.*.item_name' => 'nullable|string|max:255',
+            'items.*.name' => 'nullable|string|max:255',
+            'items.*.quantity' => 'nullable|integer|min:1',
+            'items.*.hours_per_unit' => 'nullable|numeric|min:0',
+            'items.*.total_hours' => 'nullable|numeric|min:0',
+            'items.*.unit' => 'nullable|string|max:50',
+            'items.*.plan_item_estimate_id' => 'nullable',
         ];
     }
 

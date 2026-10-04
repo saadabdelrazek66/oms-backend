@@ -7,6 +7,9 @@ use App\Models\ContentPlan;
 use App\Models\PlanPost;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Notification;
+use App\Modules\Notifications\Notifications\SystemNotification;
+use App\Models\User;
 
 class PlanPostController extends Controller
 {
@@ -51,32 +54,40 @@ class PlanPostController extends Controller
         ]);
     }
 
-    // 2. إضافة صف جديد لليوم الواحد (في حالة أراد العميل نشر أكثر من بوست في نفس اليوم)
+   // 2. إضافة صف جديد لليوم الواحد
     public function store(Request $request, ContentPlan $plan)
     {
-        // 1. إضافة الحقل الجديد لقواعد التحقق
         $request->validate([
             'target_date' => 'required|date',
             'is_urgent' => 'nullable|boolean'
         ]);
 
-        // 2. تمرير القيمة عند الإنشاء
+        $isUrgent = $request->boolean('is_urgent');
+
         $post = $plan->posts()->create([
             'target_date' => $request->target_date,
-            'is_urgent' => $request->boolean('is_urgent'), // تحويل آمن لـ true/false
+            'is_urgent' => $isUrgent, 
             'actual_publish_status' => 'لم يتم',
             'finance_status' => 'غير ممول',
         ]);
 
-        // نرجع الصف الجديد بالكامل للفرونت إند ليتم رسمه في الجدول فوراً
+        // --- 🔔 إشعار: إضافة بوست جديد للخطة ---
+        $plan->load('users', 'client');
+        Notification::send($plan->users, new SystemNotification([
+            'title' => $isUrgent ? 'بوست عاجل جديد 🚨' : 'إضافة بوست جديد 📝',
+            'body' => "تم إضافة صف بوست جديد بتاريخ {$request->target_date} في خطة العميل {$plan->client->name}.",
+            'url' => "/plan-board/{$plan->id}", 
+            'icon' => $isUrgent ? 'exclamation-triangle' : 'plus-circle'
+        ]));
+
         return response()->json([
             'message' => 'تم إضافة صف جديد',
             'data' => $post->load(['designer:id,name', 'reviewer:id,name'])
         ]);
     }
+
     public function update(Request $request, PlanPost $post)
     {
-
         $request->validate([
             'finance_cost' => 'nullable|numeric|min:0',
             'finance_days' => 'nullable|integer|min:0',
@@ -100,7 +111,7 @@ class PlanPostController extends Controller
             }
         }
 
-        // --- 2. حماية حقول التسليم (روابط التسليم ووقت التسليم) ---
+        // --- 2. حماية حقول التسليم ---
         if ($request->has('delivery_links') || $request->has('delivered_at')) {
             if (!$isManager && !$isExecutor) {
                 return response()->json([
@@ -109,7 +120,7 @@ class PlanPostController extends Controller
             }
         }
 
-        // --- 3. حماية تعديل الروابط (للمدير فقط بعد إضافتها أول مرة) ---
+        // --- 3. حماية تعديل الروابط ---
         if ($request->has('published_links')) {
             $existingLinks = $post->published_links;
             $hasExistingLinks = is_array($existingLinks) && count(array_filter($existingLinks)) > 0;
@@ -121,7 +132,7 @@ class PlanPostController extends Controller
             }
         }
 
-        // --- 4. حماية النشر (إجبار إدخال روابط لـ *جميع* المنصات المحددة) ---
+        // --- 4. حماية النشر ---
         if ($request->has('actual_publish_status') && $request->actual_publish_status === 'تم النشر') {
 
             if ($post->review_status !== 'معتمد' || $post->manager_review_status !== 'معتمد') {
@@ -151,27 +162,22 @@ class PlanPostController extends Controller
             }
         }
 
-        // --- 5. تجهيز البيانات وتطبيق القفل الذكي (Manager Override Lock) ---
+        // --- 5. تجهيز البيانات وتطبيق القفل الذكي ---
         $data = $request->all();
 
         if (isset($data['review_status']) && $data['review_status'] === 'قيد الانتظار') {
-            $data['department_approved_at'] = null; // تصفير وقت القسم
+            $data['department_approved_at'] = null;
         }
         if (isset($data['manager_review_status']) && $data['manager_review_status'] === 'قيد الانتظار') {
-            $data['manager_approved_at'] = null; // تصفير وقت المدير
+            $data['manager_approved_at'] = null;
         }
 
-        // تعبئة الموديل بالبيانات الجديدة (في الذاكرة فقط) لالتقاط التغييرات
         $post->fill($data);
 
-        // استخراج أسماء الحقول التي تغيرت قيمتها فعلياً
         $changedFields = array_keys($post->getDirty());
-
-        // التأكد من أن locked_fields مصفوفة
         $lockedFields = is_array($post->locked_fields) ? $post->locked_fields : (json_decode($post->locked_fields, true) ?? []);
 
         if (!$isManager) {
-            // الموظف: نتحقق إذا كان يحاول تعديل حقل تم قفله
             $attemptedToChangeLocked = array_intersect($changedFields, $lockedFields);
 
             if (!empty($attemptedToChangeLocked)) {
@@ -180,9 +186,7 @@ class PlanPostController extends Controller
                 ], 403);
             }
         } else {
-            // المدير: أي حقل يغيره، يتم إضافته فوراً لقائمة القفل
             if (!empty($changedFields)) {
-                // استثناء حقول دورة العمل المتغيرة باستمرار من القفل الدائم
                 $excludedFromLock = [
                     'review_status',
                     'manager_review_status',
@@ -199,25 +203,50 @@ class PlanPostController extends Controller
             }
         }
 
-        // رصد تغير حالة الرفض باستخدام getOriginal للبيانات المحفوظة مسبقاً
+        // رصد تغيرات الحالات للإشعارات
+        $wasDelivered = !is_null($post->getOriginal('delivered_at'));
+        $isDeliveredNow = !is_null($post->delivered_at);
+        $shouldNotifyDelivery = !$wasDelivered && $isDeliveredNow;
+
         $wasManagerRejected = $post->getOriginal('manager_review_status') === 'مرفوض';
         $isManagerRejecting = $post->manager_review_status === 'مرفوض';
         $shouldNotifyRejection = !$wasManagerRejected && $isManagerRejecting;
 
-        // --- 6. حفظ التعديلات نهائياً ---
-        $post->save(); // نستخدم save لأننا استخدمنا fill مسبقاً
+        $wasManagerApproved = $post->getOriginal('manager_review_status') === 'معتمد';
+        $isManagerApproved = $post->manager_review_status === 'معتمد';
+        $shouldNotifyApproval = !$wasManagerApproved && $isManagerApproved;
 
-        // --- 7. توليد حمولة الواتساب (WhatsApp Payload) ---
+        $wasPublished = $post->getOriginal('actual_publish_status') === 'تم النشر';
+        $isPublished = $post->actual_publish_status === 'تم النشر';
+        $shouldNotifyPublish = !$wasPublished && $isPublished;
+
+        // --- 6. حفظ التعديلات نهائياً ---
+        $post->save();
+
+        // جلب معرف الخطة لتوجيه الإشعار الصحيح
+        $post->loadMissing('contentPlan');
+        $planId = $post->contentPlan ? $post->contentPlan->id : null;
+        $planUrl = "/plan-board/{$planId}";
+
+        // --- 7. الإشعارات وتوليد حمولة الواتساب ---
         $whatsappPayload = null;
 
-        if ($request->has('delivered_at') && !is_null($request->delivered_at)) {
+        if ($shouldNotifyDelivery) {
             $whatsappPayload = $this->generateWhatsAppPayload('delivered', $post);
+
+            // 🔔 إشعار: تسليم بوست للمراجعة (للمديرين)
+            $managers = User::where('role', 'manager')->get();
+            Notification::send($managers, new SystemNotification([
+                'title' => 'بوست بانتظار المراجعة ⏳',
+                'body' => "تم تسليم بوست جديد للمراجعة بتاريخ {$post->target_date}.",
+                'url' => $planUrl,
+                'icon' => 'clock'
+            ]));
 
         } elseif ($shouldNotifyRejection) {
             $targetUserIds = [];
 
-            if ($post->designer_id)
-                $targetUserIds[] = $post->designer_id;
+            if ($post->designer_id) $targetUserIds[] = $post->designer_id;
 
             $reviewers = is_array($post->reviewer_ids) ? $post->reviewer_ids : (json_decode($post->reviewer_ids, true) ?? []);
             if (is_array($reviewers)) {
@@ -226,22 +255,54 @@ class PlanPostController extends Controller
 
             if ($post->responsible_id) {
                 $targetUserIds[] = $post->responsible_id;
-            } else {
-                $post->loadMissing('contentPlan');
-                if ($post->contentPlan && $post->contentPlan->responsible_id) {
-                    $targetUserIds[] = $post->contentPlan->responsible_id;
-                }
+            } else if ($post->contentPlan && $post->contentPlan->responsible_id) {
+                $targetUserIds[] = $post->contentPlan->responsible_id;
             }
 
             $targetUserIds = array_unique(array_filter($targetUserIds));
 
-            $phoneNumbers = \App\Models\User::whereIn('id', $targetUserIds)
+            $phoneNumbers = User::whereIn('id', $targetUserIds)
                 ->whereNotNull('phone')
                 ->pluck('phone')
                 ->unique()
                 ->toArray();
 
             $whatsappPayload = $this->generateWhatsAppPayload('rejected', $post, $phoneNumbers);
+
+            // 🔔 إشعار: رفض البوست وطلب التعديل (للمعنيين بالبوست)
+            $usersToNotify = User::whereIn('id', $targetUserIds)->get();
+            Notification::send($usersToNotify, new SystemNotification([
+                'title' => 'تعديلات مطلوبة على البوست ⚠️',
+                'body' => "تم رفض البوست الخاص بتاريخ {$post->target_date}، يرجى التعديل.",
+                'url' => $planUrl,
+                'icon' => 'exclamation-circle'
+            ]));
+        } 
+        
+        if ($shouldNotifyApproval) {
+            // 🔔 إشعار: اعتماد البوست (للمصمم / المنفذ)
+            if ($post->designer_id) {
+                $designer = User::find($post->designer_id);
+                if ($designer) {
+                    Notification::send($designer, new SystemNotification([
+                        'title' => 'تم اعتماد البوست ✅',
+                        'body' => "تم اعتماد البوست الخاص بتاريخ {$post->target_date} وهو جاهز للنشر.",
+                        'url' => $planUrl,
+                        'icon' => 'check-circle'
+                    ]));
+                }
+            }
+        }
+
+        if ($shouldNotifyPublish) {
+            // 🔔 إشعار: نشر البوست (للمديرين)
+            $managers = User::where('role', 'manager')->get();
+            Notification::send($managers, new SystemNotification([
+                'title' => 'تم نشر البوست بنجاح 🚀',
+                'body' => "تم نشر البوست الخاص بتاريخ {$post->target_date} على المنصات المطلوبة.",
+                'url' => $planUrl,
+                'icon' => 'rocket'
+            ]));
         }
 
         return response()->json([
@@ -283,12 +344,12 @@ class PlanPostController extends Controller
                 $post->update([
                     'manager_review_status' => 'مرفوض',
                     'manager_rejection_history' => $history,
-                    'manager_approved_at' => null // تصفير التوقيت عند الرفض
+                    'manager_approved_at' => null
                 ]);
             } else {
                 $post->update([
                     'manager_review_status' => 'معتمد',
-                    'manager_approved_at' => now() // تسجيل توقيت موافقة المدير
+                    'manager_approved_at' => now()
                 ]);
             }
         }
@@ -299,20 +360,17 @@ class PlanPostController extends Controller
         else {
             $reviewerIds = $post->reviewer_ids ?? [];
 
-            // التحقق: هل المستخدم الحالي من ضمن المراجعين المحددين؟
             $isReviewer = in_array($userId, $reviewerIds);
 
-            // مسموح للمراجعين، ومسموح للمدير بالتدخل (كصلاحية إشرافية)
             if (!$isReviewer && !$isManager) {
                 return response()->json(['message' => 'غير مصرح لك. لست ضمن قائمة المراجعين لهذا المنشور.'], 403);
             }
 
-            // جلب سجل حالات المراجعين الحالي (مصفوفة تربط كل ID بقراره)
             $statuses = $post->reviewers_statuses ?? [];
 
             // --- حالة الرفض ---
             if ($request->status == 'مرفوض') {
-                $statuses[$userId] = 'مرفوض'; // تسجيل رفض هذا الشخص
+                $statuses[$userId] = 'مرفوض';
 
                 $history = $post->rejection_history ?? [];
                 $history[] = [
@@ -323,31 +381,29 @@ class PlanPostController extends Controller
 
                 $post->update([
                     'reviewers_statuses' => $statuses,
-                    'review_status' => 'مرفوض', // رفض المنشور فوراً للقسم
+                    'review_status' => 'مرفوض',
                     'rejection_history' => $history,
-                    'department_approved_at' => null // تصفير التوقيت عند الرفض
+                    'department_approved_at' => null
                 ]);
             }
             // --- حالة الموافقة ---
             else {
-                $statuses[$userId] = 'معتمد'; // تسجيل موافقة هذا الشخص
+                $statuses[$userId] = 'معتمد';
 
-                // إذا كان المتدخل هو المدير، يمكنه الموافقة عن الجميع بضغطة واحدة
                 if ($isManager && !$isReviewer) {
                     $post->update([
                         'reviewers_statuses' => $statuses,
                         'review_status' => 'معتمد',
-                        'department_approved_at' => now() // تسجيل توقيت موافقة القسم
+                        'department_approved_at' => now()
                     ]);
                 } else {
-                    // خوارزمية الإجماع: فحص ما إذا كان جميع المراجعين وافقوا
                     $allApproved = true;
                     if (count($reviewerIds) === 0) {
                         $allApproved = false;
                     } else {
                         foreach ($reviewerIds as $rId) {
                             if (!isset($statuses[$rId]) || $statuses[$rId] !== 'معتمد') {
-                                $allApproved = false; // وجدنا شخصاً لم يوافق بعد
+                                $allApproved = false;
                                 break;
                             }
                         }
@@ -356,28 +412,62 @@ class PlanPostController extends Controller
                     $post->update([
                         'reviewers_statuses' => $statuses,
                         'review_status' => $allApproved ? 'معتمد' : 'قيد الانتظار',
-                        'department_approved_at' => $allApproved ? now() : null // يسجل الوقت فقط إذا اكتمل الإجماع
+                        'department_approved_at' => $allApproved ? now() : null
                     ]);
                 }
             }
         }
 
-        // ... (باقي كود دالة المراجعة والـ update السابق كما هو) ...
+        // جلب الخطة لتوجيه رابط الإشعار
+        $post->loadMissing('contentPlan');
+        $planId = $post->contentPlan ? $post->contentPlan->id : null;
+        $planUrl = "/plan-board/{$planId}";
 
-        // --- توليد إشعارات الواتساب بناءً على النتيجة النهائية للعملية ---
+        // --- توليد إشعارات النظام والواتساب بناءً على النتيجة النهائية للعملية ---
         $whatsappPayload = null;
 
         if ($request->status === 'مرفوض') {
-            // حالة الرفض (من المراجع أو المدير) ترسل رسالة تعديل للمنفذ
             $whatsappPayload = $this->generateWhatsAppPayload('rejected', $post);
+            
+            // 🔔 إشعار: تم رفض البوست (للمصمم)
+            if ($post->designer_id) {
+                $designer = User::find($post->designer_id);
+                if ($designer) {
+                    Notification::send($designer, new SystemNotification([
+                        'title' => 'تم رفض البوست ⚠️',
+                        'body' => "تم رفض البوست الخاص بك لتاريخ {$post->target_date}، يرجى مراجعة الملاحظات وتعديله.",
+                        'url' => $planUrl,
+                        'icon' => 'exclamation-circle'
+                    ]));
+                }
+            }
         } else {
-            // حالة الموافقة: نتحقق مما إذا كانت الموافقة أدت لاعتماد نهائي
             if ($request->review_type == 'manager' && $post->manager_review_status === 'معتمد') {
-                // الاعتماد النهائي للمدير
                 $whatsappPayload = $this->generateWhatsAppPayload('manager_approved', $post);
+                
+                // 🔔 إشعار: اعتماد نهائي من المدير (للمصمم)
+                if ($post->designer_id) {
+                    $designer = User::find($post->designer_id);
+                    if ($designer) {
+                        Notification::send($designer, new SystemNotification([
+                            'title' => 'اعتماد نهائي للبوست ✅',
+                            'body' => "تم الاعتماد النهائي للبوست بتاريخ {$post->target_date} من قبل المدير.",
+                            'url' => $planUrl,
+                            'icon' => 'check-circle'
+                        ]));
+                    }
+                }
             } elseif ($request->review_type == 'reviewer' && $post->review_status === 'معتمد') {
-                // اكتمال إجماع القسم (أو اعتماد إشرافي من المدير بالنيابة عن القسم)
                 $whatsappPayload = $this->generateWhatsAppPayload('department_approved', $post);
+                
+                // 🔔 إشعار: إجماع القسم واكتمال المراجعة (للمديرين)
+                $managers = User::where('role', 'manager')->get();
+                Notification::send($managers, new SystemNotification([
+                    'title' => 'بوست جاهز للاعتماد النهائي ⏳',
+                    'body' => "تم اعتماد البوست بتاريخ {$post->target_date} من قبل القسم وهو بانتظار مراجعتك النهائية.",
+                    'url' => $planUrl,
+                    'icon' => 'clock'
+                ]));
             }
         }
 
@@ -392,13 +482,9 @@ class PlanPostController extends Controller
     public function resubmit(Request $request, PlanPost $post)
     {
         $user = auth()->user();
-
         $isManager = $user->role->value === 'manager';
-
-        // التحقق مما إذا كان المستخدم هو المنفذ المخصص
         $isExecutor = $user->id == $post->designer_id;
 
-        // اللوجيك الأمني: المنفذ والمدير فقط هما من يحق لهما إعادة الإرسال
         if (!$isManager && !$isExecutor) {
             return response()->json([
                 'message' => 'غير مصرح لك. فقط المنفذ المكلف بهذا المنشور أو المدير يمكنهم إعادة الإرسال.'
@@ -406,15 +492,35 @@ class PlanPostController extends Controller
         }
 
         $post->update([
-            'delivered_at' => now(),                 // تحديث وقت التسليم للوقت الحالي
-            'review_status' => 'قيد الانتظار',       // إرجاع حالة القسم لقيد الانتظار
-            'manager_review_status' => 'قيد الانتظار', // إرجاع حالة المدير لقيد الانتظار
-            'reviewers_statuses' => [],              // تفريغ تصويتات المراجعين لإجبارهم على المراجعة من جديد
-            'department_approved_at' => null,        // تصفير توقيت اعتماد القسم
-            'manager_approved_at' => null,           // تصفير توقيت اعتماد المدير
+            'delivered_at' => now(),                 
+            'review_status' => 'قيد الانتظار',       
+            'manager_review_status' => 'قيد الانتظار', 
+            'reviewers_statuses' => [],              
+            'department_approved_at' => null,        
+            'manager_approved_at' => null,           
         ]);
 
         $whatsappPayload = $this->generateWhatsAppPayload('resubmitted', $post);
+
+        // جلب الخطة لتوجيه رابط الإشعار
+        $post->loadMissing('contentPlan');
+        $planId = $post->contentPlan ? $post->contentPlan->id : null;
+        $planUrl = "/plan-board/{$planId}";
+
+        // 🔔 إشعار: إعادة تسليم بوست للمراجعة (للمديرين والمراجعين)
+        $targetUserIds = is_array($post->reviewer_ids) ? $post->reviewer_ids : (json_decode($post->reviewer_ids, true) ?? []);
+        
+        $usersToNotify = User::whereIn('id', $targetUserIds)
+                             ->orWhere('role', 'manager')
+                             ->get()
+                             ->unique('id'); // منع التكرار إذا كان المراجع هو نفسه مدير
+
+        Notification::send($usersToNotify, new SystemNotification([
+            'title' => 'إعادة تسليم بوست 🔄',
+            'body' => "تم تعديل وإعادة تسليم البوست الخاص بتاريخ {$post->target_date} للمراجعة.",
+            'url' => $planUrl,
+            'icon' => 'refresh'
+        ]));
 
         return response()->json([
             'message' => 'تمت إعادة إرسال المنشور للمراجعة بنجاح.',
@@ -448,8 +554,8 @@ class PlanPostController extends Controller
             ], 422);
         }
 
-        // 2. تحميل الخطة لجلب إعدادات الحقول الإلزامية الخاصة بها
-        $post->loadMissing('contentPlan');
+        // 2. تحميل الخطة والعميل لجلب إعدادات الحقول الإلزامية الخاصة بها ولاستخدامها في الإشعارات
+        $post->loadMissing('contentPlan.client');
         $plan = $post->contentPlan;
 
         // 3. القائمة الرئيسية الشاملة لكل حقول الـ Brief (Master List)
@@ -508,6 +614,21 @@ class PlanPostController extends Controller
 
         // 7. نجاح التكليف
         $post->update(['execution_started_at' => now()]);
+
+        // --- 🔔 إشعار: تكليف المنفذ ببدء العمل ---
+        if ($post->designer_id) {
+            $designer = User::find($post->designer_id);
+            if ($designer) {
+                $clientName = $plan && $plan->client ? $plan->client->name : 'العميل';
+                
+                Notification::send($designer, new SystemNotification([
+                    'title' => 'تم تكليفك ببوست جديد 🚀',
+                    'body' => "تم إعطاء إشارة البدء لك لتنفيذ بوست بتاريخ {$post->target_date} الخاص بـ {$clientName}.",
+                    'url' => "/plan-board/{$plan->id}",
+                    'icon' => 'play'
+                ]));
+            }
+        }
 
         $whatsappPayload = $this->generateWhatsAppPayload('execution_started', $post);
 

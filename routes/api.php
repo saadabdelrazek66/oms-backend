@@ -37,6 +37,22 @@ Route::middleware(['auth:sanctum'])->group(function () {
     });
     Route::apiResource('clients', ClientController::class);
 
+    // إعدادات النظام - تقدير ساعات العمل لعناصر الخطط (خاص بالمدير فقط)
+        // جلب قائمة خفيفة ومجردة بأنواع الخطط للقوائم المنسدلة
+    Route::get('/plan-categories/options', [\App\Http\Controllers\Api\PlanItemEstimateController::class, 'options']);
+
+    Route::middleware('role:manager')->prefix('settings')->group(function () {
+        Route::get('/plan-item-estimates', [\App\Http\Controllers\Api\PlanItemEstimateController::class, 'index']);
+        Route::post('/plan-item-categories', [\App\Http\Controllers\Api\PlanItemEstimateController::class, 'storeCategory']);
+        Route::put('/plan-item-categories/{category}', [\App\Http\Controllers\Api\PlanItemEstimateController::class, 'updateCategory']);
+        Route::delete('/plan-item-categories/{category}', [\App\Http\Controllers\Api\PlanItemEstimateController::class, 'destroyCategory']);
+
+        Route::post('/plan-item-estimates', [\App\Http\Controllers\Api\PlanItemEstimateController::class, 'storeItem']);
+        Route::put('/plan-item-estimates/bulk-update', [\App\Http\Controllers\Api\PlanItemEstimateController::class, 'bulkUpdate']);
+        Route::put('/plan-item-estimates/{estimate}', [\App\Http\Controllers\Api\PlanItemEstimateController::class, 'updateItem']);
+        Route::delete('/plan-item-estimates/{estimate}', [\App\Http\Controllers\Api\PlanItemEstimateController::class, 'destroyItem']);
+    });
+
 
     Route::get('/content-plans', [ContentPlanController::class, 'index']);
     Route::get('/plans/boards', [App\Http\Controllers\Api\ContentPlanController::class, 'boardPlans']);
