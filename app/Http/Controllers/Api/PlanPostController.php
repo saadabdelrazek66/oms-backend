@@ -53,7 +53,7 @@ class PlanPostController extends Controller
             }
         }
 
-        $posts = $query->get();
+        $posts = $query->orderBy('target_date', 'asc')->orderBy('id', 'asc')->get();
 
         return response()->json([
             'data' => $posts,

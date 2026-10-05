@@ -14,13 +14,14 @@ use App\Enums\Role;
 use App\Enums\WorkType;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 #[Fillable(['name','job_title', 'email', 'password', 'role', 'phone','work_type'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable, HasApiTokens, LogsActivity;
+    use HasFactory, Notifiable, HasApiTokens, LogsActivity, SoftDeletes;
 
     /**
      * Get the attributes that should be cast.

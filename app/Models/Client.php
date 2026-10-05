@@ -5,12 +5,13 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use App\Enums\DriveLinkType;
 
 class Client extends Model
 {
-    use LogsActivity;
+    use LogsActivity, SoftDeletes;
     protected $fillable = [
         'name',
         'phones',

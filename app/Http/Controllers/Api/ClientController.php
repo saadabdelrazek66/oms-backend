@@ -14,9 +14,15 @@ class ClientController extends Controller
     public function __construct(private ClientService $service) {}
 
     // عرض كل العملاء مع جهات الاتصال وروابط درايف الخاصة بهم
-    public function index()
+    public function index(Request $request)
     {
-        $clients = Client::with(['contacts', 'driveLinks'])->orderBy('id', 'desc')->paginate(15);
+        $perPage = min(100, max(5, (int)$request->input('per_page', 15)));
+        $clients = Client::with([
+            'contacts:id,client_id,contact_name,contact_method,contact_details',
+            'driveLinks:id,client_id,title,url'
+        ])
+        ->orderBy('id', 'desc')
+        ->paginate($perPage);
 
         return response()->json($clients);
     }
@@ -47,10 +53,6 @@ class ClientController extends Controller
     // حذف العميل
     public function destroy(Client $client)
     {
-        if ($client->logo && File::exists(public_path('uploads/clients/' . $client->logo))) {
-            File::delete(public_path('uploads/clients/' . $client->logo));
-        }
-
         $client->delete();
         return response()->json(['message' => 'تم حذف العميل بنجاح']);
     }

@@ -21,7 +21,17 @@ class ContentPlanController extends Controller
     {
         $user = $request->user();
 
-        $query = ContentPlan::with(['users', 'client.driveLinks', 'reviewHistories.reviewer', 'clientFollowUps.user', 'items']);
+        $query = ContentPlan::with([
+            'users:id,name,phone,role,job_title',
+            'client:id,name,phones,logo',
+            'client.driveLinks:id,client_id,title,url',
+            'client.contacts:id,client_id,contact_name,contact_method,contact_details',
+            'reviewHistories:id,content_plan_id,reviewer_id,action,notes,created_at',
+            'reviewHistories.reviewer:id,name',
+            'clientFollowUps:id,content_plan_id,user_id,content,image_path,created_at',
+            'clientFollowUps.user:id,name',
+            'items:id,content_plan_id,plan_item_estimate_id,item_name,quantity,hours_per_unit,total_hours'
+        ]);
 
         if ($user->role->value === 'employee') {
             $query->whereHas('users', function ($q) use ($user) {
@@ -82,11 +92,13 @@ class ContentPlanController extends Controller
             });
         }
 
-        $plans = $query->orderBy('id', 'desc')->paginate(15);
+        $perPage = min(50, max(5, (int)$request->input('per_page', 15)));
+        $plans = $query->orderBy('id', 'desc')->paginate($perPage);
 
         $plans->getCollection()->transform(function ($plan) {
-            $reviewFolder = $plan->client->driveLinks->where('title', DriveLinkType::PLAN_REVIEW->value)->first();
-            $finalFolder = $plan->client->driveLinks->where('title', DriveLinkType::PLAN_FINAL_DELIVERY->value)->first();
+            $driveLinks = $plan->client?->driveLinks;
+            $reviewFolder = $driveLinks ? $driveLinks->where('title', DriveLinkType::PLAN_REVIEW->value)->first() : null;
+            $finalFolder = $driveLinks ? $driveLinks->where('title', DriveLinkType::PLAN_FINAL_DELIVERY->value)->first() : null;
 
             $plan->folders = [
                 'review_link' => $reviewFolder ? ($reviewFolder->url ?? $reviewFolder->link) : null, 
@@ -110,7 +122,23 @@ class ContentPlanController extends Controller
             ], 403);
         }
 
-        $content_plan->load(['client', 'users', 'items', 'folders']);
+        $content_plan->load([
+            'users:id,name,phone,role,job_title',
+            'client:id,name,phones,logo',
+            'client.driveLinks:id,client_id,title,url',
+            'client.contacts:id,client_id,contact_name,contact_method,contact_details',
+            'items:id,content_plan_id,plan_item_estimate_id,item_name,quantity,hours_per_unit,total_hours'
+        ]);
+
+        $driveLinks = $content_plan->client?->driveLinks;
+        $reviewFolder = $driveLinks ? $driveLinks->where('title', DriveLinkType::PLAN_REVIEW->value)->first() : null;
+        $finalFolder = $driveLinks ? $driveLinks->where('title', DriveLinkType::PLAN_FINAL_DELIVERY->value)->first() : null;
+
+        $content_plan->folders = [
+            'review_link' => $reviewFolder ? ($reviewFolder->url ?? $reviewFolder->link) : null,
+            'final_delivery_link' => $finalFolder ? ($finalFolder->url ?? $finalFolder->link) : null,
+        ];
+
         return response()->json([
             'data' => $content_plan
         ]);
@@ -206,12 +234,13 @@ class ContentPlanController extends Controller
     {
         $validated = $request->validate([
             'link' => ['required', 'url', new \App\Rules\ValidDriveFileLink()],
+            'notes' => ['nullable', 'string'],
         ], [
             'link.required' => 'يجب إرفاق لينك الخطة لإتمام عملية التسليم للمراجعة.',
             'link.url' => 'الرابط المدخل غير صالح.'
         ]);
 
-        $plan = $this->service->submitForReview($content_plan, $request->user()->id, $validated['link']);
+        $plan = $this->service->submitForReview($content_plan, $request->user()->id, $validated['link'], $request->input('notes'));
         $plan->load('client');
 
         $managers = User::where('role', 'manager')->get();
@@ -235,12 +264,13 @@ class ContentPlanController extends Controller
     {
         $validated = $request->validate([
             'link' => ['required', 'url', new \App\Rules\ValidDriveFileLink()],
+            'notes' => ['nullable', 'string'],
         ], [
             'link.required' => 'مطلوب إرفاق لينك الخطة لإتمام تسليمها للعميل.',
             'link.url' => 'الرابط المدخل غير صالح.'
         ]);
 
-        $plan = $this->service->submitFinalDelivery($content_plan, $validated['link']);
+        $plan = $this->service->submitFinalDelivery($content_plan, $validated['link'], $request->input('notes'));
         $plan->load('client');
 
         $managers = User::where('role', 'manager')->get();
@@ -394,5 +424,29 @@ class ContentPlanController extends Controller
                 'is_recurring' => $contentPlan->is_recurring
             ]
         ], 200);
+    }
+
+    public function toggleClientNotifyPermission(Request $request, ContentPlan $contentPlan)
+    {
+        $user = auth()->user();
+
+        if ($user->role->value !== 'manager') {
+            return response()->json([
+                'message' => 'صلاحية التحكم في إتاحة الزر مخصصة للمدير فقط.'
+            ], 403);
+        }
+
+        $contentPlan->allow_client_notify_by_employee = !$contentPlan->allow_client_notify_by_employee;
+        $contentPlan->save();
+
+        $statusAr = $contentPlan->allow_client_notify_by_employee ? 'متاح للموظف المسئول 🟢' : 'خاص بالمدير فقط 🔒';
+
+        return response()->json([
+            'message' => "تم تحديث صلاحية الزر: {$statusAr}",
+            'data' => [
+                'id' => $contentPlan->id,
+                'allow_client_notify_by_employee' => (bool)$contentPlan->allow_client_notify_by_employee,
+            ]
+        ]);
     }
 }

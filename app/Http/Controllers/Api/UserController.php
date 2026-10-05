@@ -11,10 +11,10 @@ use App\Http\Requests\UserRequest;
 
 class UserController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        // جلب المستخدمين مع أقسامهم
-        $users = User::with('departments')->orderBy('id', 'desc')->paginate(15);
+        $perPage = min(100, max(5, (int)$request->input('per_page', 15)));
+        $users = User::with('departments:id,name')->orderBy('id', 'desc')->paginate($perPage);
         return response()->json($users);
     }
 

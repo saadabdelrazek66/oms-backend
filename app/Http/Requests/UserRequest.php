@@ -42,7 +42,7 @@ class UserRequest extends FormRequest
                 'string',
                 'email:rfc,dns',
                 'max:255',
-                Rule::unique('users', 'email')->ignore($userId),
+                Rule::unique('users', 'email')->whereNull('deleted_at')->ignore($userId),
             ],
 
             'password' => $isUpdate ? 'nullable|string|min:8|max:100' : 'required|string|min:8|max:100',
@@ -53,7 +53,7 @@ class UserRequest extends FormRequest
                 'regex:/^\+?[0-9]+$/',
                 'min:10',
                 'max:15',
-                Rule::unique('users', 'phone')->ignore($userId),
+                Rule::unique('users', 'phone')->whereNull('deleted_at')->ignore($userId),
             ],
 
             'work_type' => ['required', new Enum(WorkType::class)],

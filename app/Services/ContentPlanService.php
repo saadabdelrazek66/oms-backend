@@ -56,10 +56,13 @@ class ContentPlanService
         }
     }
 
-public function submitForReview(ContentPlan $plan, $userId, string $link)
+public function submitForReview(ContentPlan $plan, $userId, string $link, ?string $notes = null)
     {
         $plan->status = 'under_review';
         $plan->final_link = $link;
+        if (!is_null($notes)) {
+            $plan->notes = $notes;
+        }
         
         if (is_null($plan->actual_initial_delivery_date)) {
             $plan->actual_initial_delivery_date = now();
@@ -70,17 +73,20 @@ public function submitForReview(ContentPlan $plan, $userId, string $link)
         $plan->reviewHistories()->create([
             'reviewer_id' => $userId,
             'action' => 'submitted',
-            'notes' => 'تم تسليم الخطة للمراجعة الداخلية.',
+            'notes' => !empty($notes) ? $notes : 'تم تسليم الخطة للمراجعة الداخلية.',
         ]);
 
         return $plan;
     }
 
-    public function submitFinalDelivery(ContentPlan $plan, string $link)
+    public function submitFinalDelivery(ContentPlan $plan, string $link, ?string $notes = null)
     {
         $plan->actual_delivery_date = now();
         $plan->status = 'completed';
         $plan->final_link = $link;
+        if (!is_null($notes)) {
+            $plan->notes = $notes;
+        }
         $plan->save();
         
         return $plan;

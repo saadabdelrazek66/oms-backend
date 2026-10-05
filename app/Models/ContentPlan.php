@@ -6,10 +6,11 @@ use Carbon\CarbonPeriod;
 use Illuminate\Database\Eloquent\Model;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class ContentPlan extends Model
 {
-    use LogsActivity;
+    use LogsActivity, SoftDeletes;
     protected $fillable = [
         'name', // إضافة الاسم هنا
         'client_id',
@@ -31,6 +32,7 @@ class ContentPlan extends Model
         'notes',
         'is_recurring',
         'last_recurrence_handled_at',
+        'allow_client_notify_by_employee',
     ];
 
     protected $casts = [
@@ -45,6 +47,7 @@ class ContentPlan extends Model
         'total_estimated_hours' => 'float',
         'is_recurring' => 'boolean',
         'last_recurrence_handled_at' => 'datetime',
+        'allow_client_notify_by_employee' => 'boolean',
     ];
 
     protected function serializeDate(\DateTimeInterface $date)
