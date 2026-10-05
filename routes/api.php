@@ -92,6 +92,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/content-plans/{contentPlan}/duplicate', [App\Http\Controllers\Api\ContentPlanController::class, 'duplicate']);
     Route::patch('/content-plans/{contentPlan}/toggle-recurrence', [ContentPlanController::class, 'toggleRecurrence']);
     Route::patch('/content-plans/{contentPlan}/toggle-client-notify-permission', [ContentPlanController::class, 'toggleClientNotifyPermission']);
+    Route::post('/content-plans/{contentPlan}/client-approval', [ContentPlanController::class, 'toggleClientApproval']);
 
     Route::apiResource('projects', App\Http\Controllers\Api\ProjectController::class);
     Route::get('/projects/{project}/tasks', [App\Http\Controllers\Api\TaskController::class, 'index']);

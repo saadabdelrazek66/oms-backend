@@ -10,6 +10,13 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class ContentPlan extends Model
 {
+    protected $appends = ['is_client_approved'];
+
+    public function getIsClientApprovedAttribute(): bool
+    {
+        return !is_null($this->client_approved_at);
+    }
+
     use LogsActivity, SoftDeletes;
     protected $fillable = [
         'name', // إضافة الاسم هنا
@@ -33,6 +40,7 @@ class ContentPlan extends Model
         'is_recurring',
         'last_recurrence_handled_at',
         'allow_client_notify_by_employee',
+        'client_approved_at',
     ];
 
     protected $casts = [
@@ -48,6 +56,7 @@ class ContentPlan extends Model
         'is_recurring' => 'boolean',
         'last_recurrence_handled_at' => 'datetime',
         'allow_client_notify_by_employee' => 'boolean',
+        'client_approved_at' => 'datetime',
     ];
 
     protected function serializeDate(\DateTimeInterface $date)

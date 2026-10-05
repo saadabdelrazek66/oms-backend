@@ -285,8 +285,8 @@ class PlanPostController extends Controller
 
         // جلب معرف الخطة لتوجيه الإشعار الصحيح
         $post->loadMissing('contentPlan');
-        $planId = $post->contentPlan ? $post->contentPlan->id : null;
-        $planUrl = "/plan-board/{$planId}";
+        $planId = $post->content_plan_id ?? ($post->contentPlan ? $post->contentPlan->id : null);
+        $planUrl = $planId ? "/plan-board/{$planId}" : "/plan-contents";
 
         // --- 7. الإشعارات وتوليد حمولة الواتساب ---
         $whatsappPayload = null;
@@ -480,8 +480,8 @@ class PlanPostController extends Controller
 
         // جلب الخطة لتوجيه رابط الإشعار
         $post->loadMissing('contentPlan');
-        $planId = $post->contentPlan ? $post->contentPlan->id : null;
-        $planUrl = "/plan-board/{$planId}";
+        $planId = $post->content_plan_id ?? ($post->contentPlan ? $post->contentPlan->id : null);
+        $planUrl = $planId ? "/plan-board/{$planId}" : "/plan-contents";
 
         // --- توليد إشعارات النظام والواتساب بناءً على النتيجة النهائية للعملية ---
         $whatsappPayload = null;
@@ -564,8 +564,8 @@ class PlanPostController extends Controller
 
         // جلب الخطة لتوجيه رابط الإشعار
         $post->loadMissing('contentPlan');
-        $planId = $post->contentPlan ? $post->contentPlan->id : null;
-        $planUrl = "/plan-board/{$planId}";
+        $planId = $post->content_plan_id ?? ($post->contentPlan ? $post->contentPlan->id : null);
+        $planUrl = $planId ? "/plan-board/{$planId}" : "/plan-contents";
 
         // 🔔 إشعار: إعادة تسليم بوست للمراجعة (للمديرين والمراجعين)
         $targetUserIds = is_array($post->reviewer_ids) ? $post->reviewer_ids : (json_decode($post->reviewer_ids, true) ?? []);

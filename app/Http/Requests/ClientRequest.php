@@ -52,6 +52,12 @@ class ClientRequest extends FormRequest
             'social_links.*.platform' => 'required_with:social_links|string|max:100',
             'social_links.*.url' => 'required_with:social_links|url|max:500',
 
+            // روابط جروبات العميل (واتساب، تليجرام، ديسكورد، إلخ)
+            'group_links' => 'nullable|array|max:20',
+            'group_links.*.platform' => 'required_with:group_links|string|max:100',
+            'group_links.*.title' => 'nullable|string|max:150',
+            'group_links.*.url' => 'required_with:group_links|url|max:1000',
+
             // جهات الاتصال (موجودة في ملفك الأصلي)
             'contacts' => 'nullable|array|max:10',
             'contacts.*.contact_name' => 'required_with:contacts|string|min:2|max:100',
@@ -103,6 +109,12 @@ class ClientRequest extends FormRequest
             'social_links.*.platform.required_with' => 'يرجى تحديد اسم المنصة (مثال: فيسبوك، انستجرام).',
             'social_links.*.url.required_with' => 'يرجى إدخال الرابط الخاص بالمنصة.',
             'social_links.*.url.url' => 'أحد الروابط المدخلة غير صالح (تأكد أنه يبدأ بـ http:// أو https://).',
+
+            // رسائل روابط الجروبات
+            'group_links.max' => 'لا يمكنك إضافة أكثر من 20 رابط جروب للعميل.',
+            'group_links.*.platform.required_with' => 'يرجى تحديد منصة الجروب (واتساب، تليجرام، إلخ).',
+            'group_links.*.url.required_with' => 'يرجى إدخال رابط الجروب.',
+            'group_links.*.url.url' => 'أحد روابط الجروبات المدخلة غير صالح (تأكد من البدء بـ http:// أو https://).',
 
             // رسائل جهات الاتصال
             'contacts.max' => 'لا يمكنك إضافة أكثر من 10 جهات اتصال للعميل.',

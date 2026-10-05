@@ -22,12 +22,14 @@ class Client extends Model
         'instapay',
         'wallet',
         'social_links',
+        'group_links',
         'logo',
     ];
 
 
     protected $casts = [
         'social_links' => 'array',
+        'group_links' => 'array',
         'phones' => 'array',
         'emails' => 'array',
     ];

@@ -39,6 +39,10 @@ class ContentPlanController extends Controller
             });
         }
 
+        if ($request->filled('plan_id')) {
+            $query->where('id', $request->plan_id);
+        }
+
         if ($request->filled('client_id')) {
             $query->where('client_id', $request->client_id);
         }
@@ -190,7 +194,7 @@ class ContentPlanController extends Controller
         Notification::send($plan->users, new SystemNotification([
             'title' => 'إسناد خطة عمل جديدة 🆕',
             'body' => "تم تعيينك للعمل على خطة المحتوى الخاصة بالعميل {$plan->client->name}.",
-            'url' => "/content-plans/{$plan->id}",
+            'url' => "/plan-board/{$plan->id}",
             'icon' => 'document-add'
         ]));
 
@@ -211,7 +215,7 @@ class ContentPlanController extends Controller
         Notification::send($plan->users, new SystemNotification([
             'title' => 'تحديث في تفاصيل الخطة 🔄',
             'body' => "تم تعديل تفاصيل ومواعيد خطة العميل {$plan->client->name}.",
-            'url' => "/content-plans/{$plan->id}",
+            'url' => "/plan-board/{$plan->id}",
             'icon' => 'refresh'
         ]));
 
@@ -247,7 +251,7 @@ class ContentPlanController extends Controller
         Notification::send($managers, new SystemNotification([
             'title' => 'خطة بانتظار المراجعة ⏳',
             'body' => "قام {$request->user()->name} بتسليم خطة العميل {$plan->client->name} للمراجعة الداخلية.",
-            'url' => "/content-plans/{$plan->id}",
+            'url' => "/content-plans?plan_id={$plan->id}",
             'icon' => 'clock'
         ]));
 
@@ -277,7 +281,7 @@ class ContentPlanController extends Controller
         Notification::send($managers, new SystemNotification([
             'title' => 'تسليم نهائي مكتمل 🚀',
             'body' => "تم التسليم النهائي لخطة العميل {$plan->client->name} للعميل بنجاح.",
-            'url' => "/content-plans/{$plan->id}",
+            'url' => "/content-plans?plan_id={$plan->id}",
             'icon' => 'rocket'
         ]));
 
@@ -298,7 +302,7 @@ class ContentPlanController extends Controller
         Notification::send($plan->users, new SystemNotification([
             'title' => 'تم اعتماد الخطة بنجاح ✅',
             'body' => "تم اعتماد خطة العميل {$plan->client->name} وهي الآن جاهزة للتسليم النهائي.",
-            'url' => "/content-plans/{$plan->id}",
+            'url' => "/plan-board/{$plan->id}",
             'icon' => 'check-circle'
         ]));
 
@@ -320,7 +324,7 @@ class ContentPlanController extends Controller
         Notification::send($plan->users, new SystemNotification([
             'title' => 'تعديلات مطلوبة على الخطة ⚠️',
             'body' => "قام المدير بإضافة ملاحظات على خطة العميل {$plan->client->name}، يرجى تعديلها.",
-            'url' => "/content-plans/{$plan->id}",
+            'url' => "/plan-board/{$plan->id}",
             'icon' => 'exclamation-circle'
         ]));
 
@@ -375,6 +379,7 @@ class ContentPlanController extends Controller
         $newPlan->actual_initial_delivery_date = null;
         $newPlan->actual_delivery_date = null;
         $newPlan->actual_review_date = null;
+        $newPlan->client_approved_at = null;
         $newPlan->final_link = null; 
         $newPlan->status = 'pending';
 
@@ -392,7 +397,7 @@ class ContentPlanController extends Controller
         Notification::send($newPlan->users, new SystemNotification([
             'title' => 'بدء خطة شهر جديد 📅',
             'body' => "تم استنساخ وتجديد خطة العميل {$newPlan->client->name} لشهر جديد وتم تعيينك بها.",
-            'url' => "/content-plans/{$newPlan->id}",
+            'url' => "/plan-board/{$newPlan->id}",
             'icon' => 'calendar'
         ]));
 
@@ -447,6 +452,45 @@ class ContentPlanController extends Controller
                 'id' => $contentPlan->id,
                 'allow_client_notify_by_employee' => (bool)$contentPlan->allow_client_notify_by_employee,
             ]
+        ]);
+    }
+
+    public function toggleClientApproval(Request $request, ContentPlan $contentPlan)
+    {
+        $user = auth()->user();
+        $userRole = is_object($user->role) ? ($user->role->value ?? '') : $user->role;
+        $isManager = in_array($userRole, ['manager', 'admin']) || ($user->job_title === 'Account Manager');
+        $isResponsible = $contentPlan->users()->where('users.id', $user->id)->wherePivot('task_role', 'responsible')->exists();
+
+        if (!$isManager && !$isResponsible) {
+            return response()->json([
+                'message' => 'عذراً، لا تمتلك الصلاحية لتسجيل اعتماد العميل على هذه الخطة.'
+            ], 403);
+        }
+
+        if ($contentPlan->client_approved_at) {
+            $contentPlan->client_approved_at = null;
+            $contentPlan->save();
+            $message = 'تم إلغاء اعتماد العميل.';
+        } else {
+            $contentPlan->client_approved_at = now();
+            $contentPlan->save();
+            $message = 'تم تسجيل اعتماد العميل بنجاح وتم فتح مرحلة التسليم النهائي ✅';
+
+            // إشعار أعضاء فريق العمل
+            Notification::send($contentPlan->users, new SystemNotification([
+                'title' => 'اعتماد العميل للخطة ✅',
+                'body' => "تم اعتماد خطة العميل ({$contentPlan->client->name}) بنجاح. أصبحت مرحلة التسليم النهائي متاحة الآن.",
+                'url' => "/content-plans?plan_id={$contentPlan->id}",
+                'icon' => 'check-circle'
+            ]));
+        }
+
+        $contentPlan->load(['client', 'users']);
+
+        return response()->json([
+            'message' => $message,
+            'data' => $contentPlan
         ]);
     }
 }
