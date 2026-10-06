@@ -19,6 +19,7 @@ class PlanPost extends Model
         'deadline' => 'datetime',
         'ad_platform' => 'array',
         'delivered_at' => 'datetime',
+        'final_delivered_at' => 'datetime',
         'execution_started_at' => 'datetime',
         'department_approved_at' => 'datetime',
         'manager_approved_at' => 'datetime',

@@ -113,6 +113,16 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     Route::get('/system-logs', [App\Http\Controllers\Api\SystemLogController::class, 'index']);
     Route::delete('/system-logs', [App\Http\Controllers\Api\SystemLogController::class, 'destroy']);
+
+    // سلة المهملات (Trash / Recovery Center) - خاص بالمدير فقط
+    Route::middleware('role:manager')->prefix('trash')->group(function () {
+        Route::get('/counts', [\App\Http\Controllers\Api\TrashController::class, 'counts']);
+        Route::get('/{category}', [\App\Http\Controllers\Api\TrashController::class, 'index']);
+        Route::post('/{category}/{id}/restore', [\App\Http\Controllers\Api\TrashController::class, 'restore']);
+        Route::delete('/{category}/{id}/force', [\App\Http\Controllers\Api\TrashController::class, 'forceDelete']);
+        Route::post('/{category}/restore-all', [\App\Http\Controllers\Api\TrashController::class, 'restoreAll']);
+        Route::delete('/{category}/empty', [\App\Http\Controllers\Api\TrashController::class, 'emptyTrash']);
+    });
 });
 
 // مجموعة المهام السريعة

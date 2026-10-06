@@ -72,6 +72,11 @@ class Client extends Model
         return $this->hasMany(ContentPlan::class);
     }
 
+    public function plans()
+    {
+        return $this->contentPlans();
+    }
+
     // علاقة العميل ببيانات الدخول (الخزنة)
     public function credentials()
     {

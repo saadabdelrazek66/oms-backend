@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use App\Modules\Notifications\Notifications\SystemNotification;
 use App\Models\User;
+use App\Rules\ValidDriveFolderLink;
+use App\Rules\ValidPlatformLink;
 
 class PlanPostController extends Controller
 {
@@ -173,7 +175,42 @@ class PlanPostController extends Controller
             }
         }
 
-        // --- 3. حماية تعديل الروابط ---
+        // --- 2.1. حماية التسليم النهائي للأرشفة (Final Archive Delivery) ---
+        if ($request->has('final_delivery_link') || $request->has('final_delivered_at')) {
+            // الشرط الأول: متاح فقط لمنفذ المنشور والمدير العام
+            if (!$isManager && !$isExecutor) {
+                return response()->json([
+                    'message' => 'غير مصرح لك. إضافة رابط التسليم النهائي للأرشفة متاح فقط لمنفذ المنشور والمدير العام.'
+                ], 403);
+            }
+
+            // الشرط الثاني: يجب اعتماد المنشور من القسم والمدير أولاً
+            $isFullyApproved = ($post->review_status === 'معتمد' && $post->manager_review_status === 'معتمد');
+            if (!$isFullyApproved) {
+                return response()->json([
+                    'message' => 'لا يمكن إضافة رابط التسليم النهائي للأرشفة إلا بعد موافقة واعتماد القسم والمدير على المنشور.'
+                ], 422);
+            }
+
+            // الشرط الثالث: إذا تم تأكيد وتثبيت الرابط مسبقاً، التعديل متاح للمدير العام فقط
+            $existingFinalLink = trim((string) $post->final_delivery_link);
+            if ($existingFinalLink !== '' && !$isManager) {
+                if ($request->has('final_delivery_link') && trim((string) $request->final_delivery_link) !== $existingFinalLink) {
+                    return response()->json([
+                        'message' => 'عذراً، تم تأكيد وتثبيت رابط الأرشفة مسبقاً. التعديل عليه مسموح للمدير فقط.'
+                    ], 403);
+                }
+            }
+
+            // الشرط الرابع: التحقق من الرابط أن يكون رابط مجلد على جوجل درايف
+            if ($request->filled('final_delivery_link')) {
+                $request->validate([
+                    'final_delivery_link' => ['required', 'string', new ValidDriveFolderLink()],
+                ]);
+            }
+        }
+
+        // --- 3. حماية والتحقق من روابط النشر ---
         if ($request->has('published_links')) {
             $existingLinks = $post->published_links;
             $hasExistingLinks = is_array($existingLinks) && count(array_filter($existingLinks)) > 0;
@@ -182,6 +219,25 @@ class PlanPostController extends Controller
                 return response()->json([
                     'message' => 'عذراً، الروابط مضافة مسبقاً. التعديل عليها مسموح للمدير فقط لحماية البيانات.'
                 ], 403);
+            }
+
+            // التحقق من صحة روابط المنصات وأن كل رابط ينتمي لمنصته المحددة
+            $incomingLinks = $request->published_links;
+            if (is_string($incomingLinks)) {
+                $incomingLinks = json_decode($incomingLinks, true) ?? [];
+            }
+
+            if (is_array($incomingLinks)) {
+                foreach ($incomingLinks as $platform => $url) {
+                    if (!empty($url)) {
+                        $check = ValidPlatformLink::validateLink($platform, (string) $url);
+                        if (!$check['valid']) {
+                            return response()->json([
+                                'message' => $check['message']
+                            ], 422);
+                        }
+                    }
+                }
             }
         }
 
@@ -204,6 +260,13 @@ class PlanPostController extends Controller
             foreach ($platforms as $platform) {
                 if (!isset($links[$platform]) || trim($links[$platform]) === '') {
                     $missingPlatforms[] = $platform;
+                } else {
+                    $check = ValidPlatformLink::validateLink($platform, (string) $links[$platform]);
+                    if (!$check['valid']) {
+                        return response()->json([
+                            'message' => $check['message']
+                        ], 422);
+                    }
                 }
             }
 
@@ -217,6 +280,10 @@ class PlanPostController extends Controller
 
         // --- 5. تجهيز البيانات وتطبيق القفل الذكي ---
         $data = $request->all();
+
+        if ($request->filled('final_delivery_link') && is_null($post->final_delivered_at) && !isset($data['final_delivered_at'])) {
+            $data['final_delivered_at'] = now();
+        }
 
         if (isset($data['review_status']) && $data['review_status'] === 'قيد الانتظار') {
             $data['department_approved_at'] = null;
@@ -253,7 +320,9 @@ class PlanPostController extends Controller
                     'manager_approved_at',
                     'actual_publish_status',
                     'delivered_at',
-                    'target_date'
+                    'target_date',
+                    'final_delivery_link',
+                    'final_delivered_at'
                 ];
 
                 $fieldsToLock = array_diff($changedFields, $excludedFromLock);
