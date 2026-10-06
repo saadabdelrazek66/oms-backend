@@ -50,7 +50,7 @@ class ContentPlan extends Model
         'actual_review_date' => 'datetime',
         'reference_links' => 'array',
         'required_brief_fields' => 'array',
-        'planned_initial_delivery_date' => 'date',
+        'planned_initial_delivery_date' => 'datetime',
         'actual_initial_delivery_date' => 'datetime',
         'total_estimated_hours' => 'float',
         'is_recurring' => 'boolean',
