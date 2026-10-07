@@ -19,10 +19,19 @@ class Task extends Model
         'status',
         'priority',
         'due_date',
+        'is_urgent',
+        'is_displaced',
+        'original_due_date',
+        'displaced_reason',
+        'estimated_hours',
     ];
 
     protected $casts = [
         'due_date' => 'datetime',
+        'original_due_date' => 'datetime',
+        'is_urgent' => 'boolean',
+        'is_displaced' => 'boolean',
+        'estimated_hours' => 'decimal:2',
     ];
 
     protected function serializeDate(\DateTimeInterface $date)

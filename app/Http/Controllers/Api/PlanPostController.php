@@ -210,6 +210,21 @@ class PlanPostController extends Controller
             }
         }
 
+        // --- 2.2. التحقق الصارم من أسبقية موعد التسليم الابتدائي عن تاريخ النشر المخطط ---
+        $checkTargetDate = $request->input('target_date', $post->target_date);
+        $checkDeadline = $request->input('deadline', $post->deadline);
+
+        if ($checkTargetDate && $checkDeadline) {
+            $parsedTarget = \Carbon\Carbon::parse($checkTargetDate)->endOfDay();
+            $parsedDeadline = \Carbon\Carbon::parse($checkDeadline);
+
+            if ($parsedDeadline->gt($parsedTarget)) {
+                return response()->json([
+                    'message' => 'عذراً، لا يمكن أن يكون موعد التسليم الابتدائي (' . $parsedDeadline->format('Y-m-d') . ') بعد تاريخ النشر المخطط للمنشور (' . \Carbon\Carbon::parse($checkTargetDate)->format('Y-m-d') . '). يجب تسليم العمل قبل موعد نشره.'
+                ], 422);
+            }
+        }
+
         // --- 3. حماية والتحقق من روابط النشر ---
         if ($request->has('published_links')) {
             $existingLinks = $post->published_links;
@@ -349,8 +364,89 @@ class PlanPostController extends Controller
         $isPublished = $post->actual_publish_status === 'تم النشر';
         $shouldNotifyPublish = !$wasPublished && $isPublished;
 
+        $wasUrgent = (bool) $post->getOriginal('is_urgent');
+        $isUrgentNow = (bool) $post->is_urgent;
+
+        $oldDesignerId = $post->getOriginal('designer_id');
+        $newDesignerId = $post->designer_id;
+
+        $oldDeadline = $post->getOriginal('deadline');
+        $newDeadline = $post->deadline;
+
+        $oldTargetDate = $post->getOriginal('target_date');
+        $newTargetDate = $post->target_date;
+
+        $dateChanged = ($oldDeadline !== $newDeadline) || ($oldTargetDate !== $newTargetDate);
+        $designerChanged = ($oldDesignerId != $newDesignerId);
+
         // --- 6. حفظ التعديلات نهائياً ---
         $post->save();
+
+        // --- 6.1. محرك الترحيل التلقائي للطوارئ والإرجاع الذكي الشامل ---
+        $displacedItems = [];
+        $rolledBackItems = [];
+        $cascadeWarning = null;
+
+        $postTitle = $post->post_type ? "منشور {$post->post_type}" : "منشور خطة #{$post->id}";
+        $urgentDate = $post->deadline ? \Carbon\Carbon::parse($post->deadline) : ($post->target_date ? \Carbon\Carbon::parse($post->target_date) : now());
+
+        // أ) عند تفعيل حالة الطوارئ لمنشور جديد أو غير عاجل سابقاً
+        if (!$wasUrgent && $isUrgentNow) {
+            if ($newDesignerId) {
+                try {
+                    $cascadeResult = app(\App\Services\WorkloadCascadingService::class)->autoCascadeWorkload((int) $newDesignerId, $urgentDate, $post, $postTitle);
+                    $displacedItems = $cascadeResult['displaced_items'] ?? (is_array($cascadeResult) ? $cascadeResult : []);
+                    $cascadeWarning = $cascadeResult['warning'] ?? null;
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::error("Error in autoCascadeWorkload for post {$post->id}: " . $e->getMessage());
+                }
+            }
+        }
+        // ب) عند إلغاء تفعيل حالة الطوارئ أو تسليم المنشور العاجل بنجاح
+        elseif (($wasUrgent && !$isUrgentNow) || ($isUrgentNow && $shouldNotifyDelivery)) {
+            $designerToRollback = $newDesignerId ?: $oldDesignerId;
+            if ($designerToRollback) {
+                try {
+                    $rollbackResult = app(\App\Services\WorkloadCascadingService::class)->autoRollbackWorkload((int) $designerToRollback, $post, $postTitle);
+                    $rolledBackItems = $rollbackResult['rolled_back_items'] ?? [];
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::error("Error in autoRollbackWorkload for post {$post->id}: " . $e->getMessage());
+                }
+            }
+        }
+        // ج) إذا كان المنشور عاجلاً بالفعل وتغير المصمم المسند إليه
+        elseif ($wasUrgent && $isUrgentNow && $designerChanged) {
+            if ($oldDesignerId) {
+                try {
+                    $rollbackResult = app(\App\Services\WorkloadCascadingService::class)->autoRollbackWorkload((int) $oldDesignerId, $post, $postTitle);
+                    $rolledBackItems = array_merge($rolledBackItems, $rollbackResult['rolled_back_items'] ?? []);
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::error("Error in autoRollbackWorkload on designer change for post {$post->id}: " . $e->getMessage());
+                }
+            }
+            if ($newDesignerId) {
+                try {
+                    $cascadeResult = app(\App\Services\WorkloadCascadingService::class)->autoCascadeWorkload((int) $newDesignerId, $urgentDate, $post, $postTitle);
+                    $displacedItems = array_merge($displacedItems, $cascadeResult['displaced_items'] ?? []);
+                    $cascadeWarning = $cascadeResult['warning'] ?? null;
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::error("Error in autoCascadeWorkload on designer change for post {$post->id}: " . $e->getMessage());
+                }
+            }
+        }
+        // د) إذا كان المنشور عاجلاً بالفعل وتغير تاريخه (الديدلاين أو تاريخ النشر)
+        elseif ($wasUrgent && $isUrgentNow && $dateChanged && $newDesignerId) {
+            try {
+                $rollbackResult = app(\App\Services\WorkloadCascadingService::class)->autoRollbackWorkload((int) $newDesignerId, $post, $postTitle);
+                $rolledBackItems = array_merge($rolledBackItems, $rollbackResult['rolled_back_items'] ?? []);
+
+                $cascadeResult = app(\App\Services\WorkloadCascadingService::class)->autoCascadeWorkload((int) $newDesignerId, $urgentDate, $post, $postTitle);
+                $displacedItems = array_merge($displacedItems, $cascadeResult['displaced_items'] ?? []);
+                $cascadeWarning = $cascadeResult['warning'] ?? null;
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::error("Error in autoCascadeWorkload on date change for post {$post->id}: " . $e->getMessage());
+            }
+        }
 
         // جلب معرف الخطة لتوجيه الإشعار الصحيح
         $post->loadMissing('contentPlan');
@@ -437,6 +533,9 @@ class PlanPostController extends Controller
         return response()->json([
             'message' => 'تم الحفظ',
             'data' => $post,
+            'displaced_items' => $displacedItems ?? [],
+            'cascade_warning' => $cascadeWarning ?? null,
+            'rolled_back_items' => $rolledBackItems ?? [],
             'whatsapp_payload' => $whatsappPayload
         ]);
     }
@@ -1090,8 +1189,21 @@ class PlanPostController extends Controller
         }
 
         try {
+            $isUrgent = (bool) $post->is_urgent;
+            $designerId = $post->designer_id;
+            $postTitle = $post->post_type ? "منشور {$post->post_type}" : "منشور خطة #{$post->id}";
+
             // تنفيذ عملية الحذف
             $post->delete();
+
+            // ↩️ إذا كان المنشور المحذوف عاجلاً، نعيد المهام التي كانت مرحّلة بسببه
+            if ($isUrgent && $designerId) {
+                try {
+                    app(\App\Services\WorkloadCascadingService::class)->autoRollbackWorkload((int) $designerId, $post, $postTitle);
+                } catch (\Throwable $re) {
+                    \Illuminate\Support\Facades\Log::error("Error in autoRollbackWorkload on delete for post {$post->id}: " . $re->getMessage());
+                }
+            }
 
             return response()->json([
                 'message' => 'تم حذف الصف بنجاح.'
@@ -1139,6 +1251,28 @@ class PlanPostController extends Controller
         return response()->json([
             'message' => 'تم فك القفل بنجاح 🔓',
             'locked_fields' => $lockedFields
+        ]);
+    }
+    /**
+     * استرجاع الموعد الأصلي للمنشور المرحّل يدوياً
+     */
+    public function restoreDeadline(PlanPost $post)
+    {
+        if (!$post->is_displaced || !$post->original_deadline) {
+            return response()->json([
+                'message' => 'هذا المنشور ليس مرحلاً أو لا يمتلك موعداً أصلياً مسجلاً.',
+            ], 422);
+        }
+
+        $post->deadline = $post->original_deadline;
+        $post->original_deadline = null;
+        $post->is_displaced = false;
+        $post->displaced_reason = null;
+        $post->saveQuietly();
+
+        return response()->json([
+            'message' => 'تم استرجاع موعد التسليم الأصلي بنجاح ↩️',
+            'data' => $post,
         ]);
     }
 }

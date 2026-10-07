@@ -24,6 +24,8 @@ class StoreTaskRequest extends FormRequest
             'status' => 'nullable|in:todo,in_progress,in_review,completed',
             'priority' => 'nullable|in:low,medium,high,urgent',
             'due_date' => 'nullable|date',
+            'is_urgent' => 'nullable|boolean',
+            'estimated_hours' => 'nullable|numeric|min:0.5|max:24',
         ];
 
         // نطلب حقل "المسؤول" إجبارياً من المدير فقط

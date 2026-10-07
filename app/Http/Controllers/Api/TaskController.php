@@ -70,6 +70,16 @@ class TaskController extends Controller
         $task = Task::create($validated);
         $task->load(['assignee', 'creator', 'project.users']);
 
+        if ($task->is_urgent && $task->assigned_to && $task->due_date) {
+            try {
+                $urgentDate = \Carbon\Carbon::parse($task->due_date);
+                $taskTitle = $task->title ?? "مهمة مشروع #{$task->id}";
+                app(\App\Services\WorkloadCascadingService::class)->autoCascadeWorkload((int) $task->assigned_to, $urgentDate, $task, $taskTitle);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::error("Error in autoCascadeWorkload for task {$task->id}: " . $e->getMessage());
+            }
+        }
+
         $whatsappLink = null;
 
         if ($user->role->value === 'manager') {
@@ -113,7 +123,39 @@ class TaskController extends Controller
             unset($validated['assigned_to']);
         }
 
+        $wasUrgent = (bool) $task->getOriginal('is_urgent');
+        $wasCompleted = $task->getOriginal('status') === 'completed';
+        $oldAssignedTo = $task->getOriginal('assigned_to');
+
         $task->update($validated);
+
+        $isUrgentNow = (bool) $task->is_urgent;
+        $isCompletedNow = $task->status === 'completed';
+        $newAssignedTo = $task->assigned_to;
+        $taskTitle = $task->title ?? "مهمة مشروع #{$task->id}";
+
+        // تفعيل الطوارئ لمهمة جديدة أو غير عاجلة
+        if (!$wasUrgent && $isUrgentNow && !$isCompletedNow) {
+            if ($newAssignedTo && $task->due_date) {
+                try {
+                    $urgentDate = \Carbon\Carbon::parse($task->due_date);
+                    app(\App\Services\WorkloadCascadingService::class)->autoCascadeWorkload((int) $newAssignedTo, $urgentDate, $task, $taskTitle);
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::error("Error in autoCascadeWorkload for task {$task->id}: " . $e->getMessage());
+                }
+            }
+        }
+        // إلغاء صفة العاجل أو إكمال المهمة العاجلة بنجاح
+        elseif (($wasUrgent && !$isUrgentNow) || ($isUrgentNow && !$wasCompleted && $isCompletedNow)) {
+            $userToRollback = $newAssignedTo ?: $oldAssignedTo;
+            if ($userToRollback) {
+                try {
+                    app(\App\Services\WorkloadCascadingService::class)->autoRollbackWorkload((int) $userToRollback, $task, $taskTitle);
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::error("Error in autoRollbackWorkload for task {$task->id}: " . $e->getMessage());
+                }
+            }
+        }
         $task->load(['assignee', 'creator', 'project.users']);
 
         $whatsappLink = null;
@@ -187,7 +229,21 @@ class TaskController extends Controller
         if ($user->role->value !== 'manager' && $task->created_by !== $user->id) {
             return response()->json(['message' => 'لا تملك صلاحية حذف هذه المهمة'], 403);
         }
+
+        $isUrgent = (bool) $task->is_urgent;
+        $assignedTo = $task->assigned_to;
+        $taskTitle = $task->title ?? "مهمة مشروع #{$task->id}";
+
         $task->delete();
+
+        if ($isUrgent && $assignedTo) {
+            try {
+                app(\App\Services\WorkloadCascadingService::class)->autoRollbackWorkload((int) $assignedTo, $task, $taskTitle);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::error("Error in autoRollbackWorkload on delete for task {$task->id}: " . $e->getMessage());
+            }
+        }
+
         return response()->json(['message' => 'تم حذف المهمة']);
     }
 }
