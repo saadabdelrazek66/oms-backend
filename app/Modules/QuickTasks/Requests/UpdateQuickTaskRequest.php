@@ -29,11 +29,41 @@ class UpdateQuickTaskRequest extends FormRequest
             'assigned_to' => 'nullable|integer|exists:users,id',
             'title'       => 'nullable|string|max:255',
             'description' => 'nullable|string|max:5000',
-            'voice_record'=> 'nullable|file|mimes:audio/mpeg,mpga,mp3,wav,ogg,webm,mp4|max:10240', 
+            'voice_record'=> 'nullable|file', 
+            'attachment_file' => 'nullable|file',
             
             // إضافة after:now لمنع اختيار وقت في الماضي عند التعديل
             'deadline'    => 'nullable|date|after:now',
         ];
+    }
+
+    public function withValidator($validator)
+    {
+        $validator->after(function ($validator) {
+            if ($this->hasFile('voice_record')) {
+                try {
+                    \App\Modules\QuickTasks\Services\QuickTaskAttachmentSecurity::validate($this->file('voice_record'));
+                } catch (\Illuminate\Validation\ValidationException $e) {
+                    foreach ($e->errors() as $field => $messages) {
+                        foreach ($messages as $msg) {
+                            $validator->errors()->add($field, $msg);
+                        }
+                    }
+                }
+            }
+
+            if ($this->hasFile('attachment_file')) {
+                try {
+                    \App\Modules\QuickTasks\Services\QuickTaskAttachmentSecurity::validate($this->file('attachment_file'));
+                } catch (\Illuminate\Validation\ValidationException $e) {
+                    foreach ($e->errors() as $field => $messages) {
+                        foreach ($messages as $msg) {
+                            $validator->errors()->add('attachment_file', $msg);
+                        }
+                    }
+                }
+            }
+        });
     }
 
     public function messages()
@@ -47,9 +77,6 @@ class UpdateQuickTaskRequest extends FormRequest
             
             'title.max'       => 'عنوان المهمة يجب ألا يتجاوز 255 حرفاً.',
             'description.max' => 'التفاصيل النصية طويلة جداً (الحد الأقصى 5000 حرف).',
-            
-            'voice_record.mimes' => 'صيغة الملف الصوتي غير مدعومة، يرجى التسجيل من المتصفح مباشرة أو رفع ملف صوتي صالح.',
-            'voice_record.max'   => 'حجم الملف الصوتي يجب ألا يتجاوز 10 ميجابايت.',
         ];
     }
 }

@@ -1,0 +1,18 @@
+# حماية أمنية مشددة لمجلد الرفع: منع تنفيذ أي ملفات برمجية
+<FilesMatch "\.(?i:php|php3|php4|php5|php7|php8|phtml|phar|phps|pht|pl|py|cgi|asp|aspx|sh|bash|exe|command)$">
+    Order Deny,Allow
+    Deny from all
+</FilesMatch>
+
+<IfModule mod_php7.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php8.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+
+RemoveHandler .php .phtml .php3 .php4 .php5 .php7 .php8 .phar .cgi .pl .py .asp
+Options -ExecCGI

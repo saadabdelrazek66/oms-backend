@@ -29,10 +29,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     Route::get('/departments/list-all', [DepartmentController::class, 'listAll']);
     Route::apiResource('users', UserController::class);
-    Route::middleware('role:manager')->group(function () {
+    Route::middleware('role:manager,account_manager')->group(function () {
         Route::post('/content-plans', [ContentPlanController::class, 'store']);
         Route::put('/content-plans/{content_plan}', [ContentPlanController::class, 'update']);
         Route::delete('/content-plans/{content_plan}', [ContentPlanController::class, 'destroy']);
+    });
+
+    Route::middleware('role:manager')->group(function () {
         Route::apiResource('departments', DepartmentController::class);
     });
     Route::apiResource('clients', ClientController::class);
@@ -108,6 +111,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::put('/tasks/{task}', [App\Http\Controllers\Api\TaskController::class, 'update']);
     Route::patch('/tasks/{task}', [App\Http\Controllers\Api\TaskController::class, 'update']);
     Route::delete('/tasks/{task}', [App\Http\Controllers\Api\TaskController::class, 'destroy']);
+    Route::post('/tasks/{task}/restore-due-date', [App\Http\Controllers\Api\TaskController::class, 'restoreDueDate']);
 
     Route::get('/tasks/{task}/comments', [App\Http\Controllers\Api\TaskCommentController::class, 'index']);
     Route::post('/tasks/{task}/comments', [App\Http\Controllers\Api\TaskCommentController::class, 'store']);
@@ -117,6 +121,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/dashboard/employee', [App\Http\Controllers\Api\DashboardController::class, 'employeeDashboard']);
     Route::get('/dashboard/manager', [App\Http\Controllers\Api\ManagerDashboardController::class, 'index']);
     Route::get('/dashboard/manager/leaderboard', [App\Http\Controllers\Api\ManagerDashboardController::class, 'leaderboard']);
+    Route::get('/dashboard/manager/drilldown', [App\Http\Controllers\Api\ManagerDashboardController::class, 'drilldown']);
 
     Route::get('/system-logs', [App\Http\Controllers\Api\SystemLogController::class, 'index']);
     Route::delete('/system-logs', [App\Http\Controllers\Api\SystemLogController::class, 'destroy']);

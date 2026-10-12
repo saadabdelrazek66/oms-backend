@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\PlanPost;
 use App\Models\Task;
+use App\Models\User;
 use App\Models\PlanItemEstimate;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -141,13 +142,22 @@ class WorkloadCascadingService
     /**
      * تنفيذ الإزاحة والترحيل التلقائي المتتالي (Domino Cascading)
      */
-    public function autoCascadeWorkload(int $userId, Carbon $startDate, $urgentItem, string $urgentTitle): array
+    public function autoCascadeWorkload(int $userId, Carbon $startDate, $urgentItem, string $urgentTitle, ?string $urgentType = null): array
     {
-        return DB::transaction(function () use ($userId, $startDate, $urgentItem, $urgentTitle) {
+        return DB::transaction(function () use ($userId, $startDate, $urgentItem, $urgentTitle, $urgentType) {
+            // 🔒 قفل تشغيلي متزامن على سجل الموظف لمنع تضارب العمليات المتزامنة (Race Conditions)
+            User::where('id', $userId)->lockForUpdate()->first();
+
             $displacedItems = [];
             $currentDate = $startDate->copy()->startOfDay();
-            $urgentId = is_object($urgentItem) ? $urgentItem->id : $urgentItem;
-            $urgentType = ($urgentItem instanceof PlanPost) ? 'plan_post' : 'task';
+
+            if (is_object($urgentItem)) {
+                $urgentId = $urgentItem->id;
+                $urgentType = ($urgentItem instanceof PlanPost) ? 'plan_post' : 'task';
+            } else {
+                $urgentId = $urgentItem;
+                $urgentType = $urgentType ?: 'plan_post';
+            }
 
             // حد أقصى 14 يوم عمل متتالي لمنع الحلقات اللانهائية
             $maxIterations = 14;
@@ -185,9 +195,14 @@ class WorkloadCascadingService
                     $schedule = $this->getEmployeeDaySchedule($userId, $dateString);
                 }
 
-                // 🛡️ [فحص قفل أمان موعد النشر]: إذا كان اليوم ما زال متجاوزاً لساعات العمل ولم نتمكن من ترحيل أي منشور لاقتراب موعد النشر
+                // 🛡️ [فحص أسباب تعذر الترحيل وتوليد رسالة أمان دقيقة]:
                 if ($schedule['total_hours'] > self::MAX_DAILY_HOURS && !$anyDisplacedForThisDay) {
-                    $safetyWarning = "⚠️ تنبيه أمان: تعذر ترحيل بعض مهام يوم ({$dateString}) لأن مواعيد نشرها المجدولة قريبة جداً ولا يمكن تأخيرها عن موعد النشر المتفق عليه مع العميل!";
+                    $allRemainingAreUrgent = $schedule['plan_posts']->every(fn($p) => $p->is_urgent) && $schedule['tasks']->every(fn($t) => $t->is_urgent);
+                    if ($allRemainingAreUrgent) {
+                        $safetyWarning = "⚠️ تنبيه أمان: جدول يوم ({$dateString}) يتجاوز 8 ساعات عمل، وتعذر الترحيل لأن كافة المهام والمنشورات المتبقية في هذا اليوم مصنفة كمهام طارئة (Urgent)!";
+                    } else {
+                        $safetyWarning = "⚠️ تنبيه أمان: تعذر ترحيل بعض مهام يوم ({$dateString}) لأنها مقيدة بمواعيد نشر مجدولة مع العملاء أو مواعيد انتهاء مشاريع قريبة جداً!";
+                    }
                     break;
                 }
 
@@ -211,16 +226,26 @@ class WorkloadCascadingService
      * تنفيذ الإرجاع الذكي للمهام والمنشورات المرحّلة (Auto-Rollback)
      * يعيد المنشورات المرحّلة إلى موعدها الأصلي بمجرد فك صفة العاجل وتوفر الساعات في اليوم
      */
-    public function autoRollbackWorkload(int $userId, $urgentItem = null, string $urgentTitle = ''): array
+    public function autoRollbackWorkload(int $userId, $urgentItem = null, string $urgentTitle = '', ?string $urgentType = null): array
     {
-        return DB::transaction(function () use ($userId, $urgentItem, $urgentTitle) {
+        return DB::transaction(function () use ($userId, $urgentItem, $urgentTitle, $urgentType) {
+            // 🔒 قفل تشغيلي متزامن على سجل الموظف
+            User::where('id', $userId)->lockForUpdate()->first();
+
             $rolledBackItems = [];
-            $urgentId = is_object($urgentItem) ? $urgentItem->id : $urgentItem;
-            $urgentType = ($urgentItem instanceof PlanPost) ? 'plan_post' : (($urgentItem instanceof Task) ? 'task' : null);
+
+            if (is_object($urgentItem)) {
+                $urgentId = $urgentItem->id;
+                $urgentType = ($urgentItem instanceof PlanPost) ? 'plan_post' : (($urgentItem instanceof Task) ? 'task' : null);
+            } else {
+                $urgentId = $urgentItem;
+                $urgentType = $urgentType ?: null;
+            }
+
             $urgentTag = ($urgentType && $urgentId) ? "[{$urgentType}:{$urgentId}]" : null;
 
             $now = Carbon::now();
-            $maxPasses = 5;
+            $maxPasses = 10; // عدد دورات كافٍ لإرجاع كافة الترحيلات المتسلسلة
             $pass = 0;
 
             do {
@@ -371,32 +396,49 @@ class WorkloadCascadingService
     /**
      * اختيار العنصر المرشح للإزاحة من اليوم المزدحم
      * الأولوية:
-     * 1. المهام العامة منخفضة الأولوية (Low Priority) لإفساح المجال لبوستات العملاء الرسمية
-     * 2. منشورات الخطط ذات الأفق الأبعد عن موعد النشر (أكبر هامش أمان)
-     * 3. باقي مهام المشاريع العامة
+     * 1. المهام العامة منخفضة الأولوية (Low Priority) لإفساح المجال لبوستات العملاء الرسمية (مع حماية تاريخ نهاية المشروع)
+     * 2. منشورات الخطط ذات الأفق الأبعد عن موعد النشر (أكبر هامش أمان) وتوزيع الترحيل بعدالة
+     * 3. باقي مهام المشاريع العامة (مع حماية تاريخ نهاية المشروع)
      */
     protected function selectDisplacementCandidate(array $schedule, $urgentId, string $urgentType, Carbon $currentDate, Carbon $nextWorkingDay)
     {
-        // 1. استبعاد المهام العاجلة (is_urgent = true) ومهمة الطوارئ الحالية
+        // 1. تصفية منشورات الخطط المؤهلة
         $eligiblePosts = $schedule['plan_posts']->filter(function ($p) use ($urgentId, $urgentType, $nextWorkingDay) {
             if ($p->is_urgent) return false;
             if ($urgentType === 'plan_post' && $p->id == $urgentId) return false;
 
             // 🛡️ [قفل أمان موعد النشر]: التسليم يجب أن يسبق يوم النشر المجدول بيوم عمل كامل على الأقل!
-            // لا يجوز ترحيل موعد التسليم ليكون نفس يوم النشر المتفق عليه مع العميل أو بعده.
             if ($p->target_date) {
                 $publishDate = Carbon::parse($p->target_date)->startOfDay();
                 if ($nextWorkingDay->startOfDay()->gte($publishDate)) {
                     return false;
+                }
+            } else {
+                // إذا لم يكن هناك تاريخ نشر مسجل، نمنع الترحيل المتتالي إذا ابتعد عن الديدلاين الأصلي بأكثر من 3 أيام عمل
+                if ($p->is_displaced && $p->original_deadline) {
+                    $orig = Carbon::parse($p->original_deadline)->startOfDay();
+                    if ($nextWorkingDay->diffInWeekdays($orig) >= 3) {
+                        return false;
+                    }
                 }
             }
 
             return true;
         });
 
-        $eligibleTasks = $schedule['tasks']->filter(function ($t) use ($urgentId, $urgentType) {
+        // 2. تصفية مهام المشاريع المؤهلة مع حماية موعد نهاية المشروع
+        $eligibleTasks = $schedule['tasks']->filter(function ($t) use ($urgentId, $urgentType, $nextWorkingDay) {
             if ($t->is_urgent) return false;
             if ($urgentType === 'task' && $t->id == $urgentId) return false;
+
+            // 🛡️ [قفل أمان موعد انتهاء المشروع]: لا يجوز ترحيل موعد المهمة لما بعد تاريخ انتهاء المشروع!
+            if ($t->project && $t->project->end_date) {
+                $projectEnd = Carbon::parse($t->project->end_date)->endOfDay();
+                if ($nextWorkingDay->startOfDay()->gt($projectEnd)) {
+                    return false; // يُستبعد لحماية الإطار الزمني للمشروع
+                }
+            }
+
             return true;
         });
 
@@ -406,9 +448,13 @@ class WorkloadCascadingService
             return $lowPriorityTasks->first();
         }
 
-        // 🌟 ثانياً: منشورات الخطط - نفضل إزاحة المنشور ذو الأفق الأوسع قبل النشر (أبعد تاريخ نشر عن اليوم الحالي)
+        // 🌟 ثانياً: منشورات الخطط - نرجح المنشور الذي لم يتم ترحيله بعد (لمنع ظاهرة كرة الثلج) ثم الأبعد نشراً
         if ($eligiblePosts->isNotEmpty()) {
             return $eligiblePosts->sort(function ($a, $b) {
+                // توزيع عادل: المنشور الذي لم يسبق ترحيله يرحل أولاً بدلاً من تكرار ترحيل نفس المنشور
+                if ($a->is_displaced && !$b->is_displaced) return 1;
+                if (!$a->is_displaced && $b->is_displaced) return -1;
+
                 $aPub = $a->target_date ? Carbon::parse($a->target_date)->timestamp : PHP_INT_MAX;
                 $bPub = $b->target_date ? Carbon::parse($b->target_date)->timestamp : PHP_INT_MAX;
                 if ($aPub !== $bPub) {

@@ -97,8 +97,9 @@ class WorkloadController extends Controller
         $startDate = Carbon::parse($request->input('date'));
         $urgentId = $request->input('urgent_id');
         $urgentTitle = $request->input('urgent_title');
+        $urgentType = $request->input('urgent_type');
 
-        $result = $this->workloadService->autoCascadeWorkload($userId, $startDate, $urgentId, $urgentTitle);
+        $result = $this->workloadService->autoCascadeWorkload($userId, $startDate, $urgentId, $urgentTitle, $urgentType);
         $displaced = isset($result['displaced_items']) ? $result['displaced_items'] : (is_array($result) ? $result : []);
         $warning = $result['warning'] ?? null;
 
@@ -122,13 +123,15 @@ class WorkloadController extends Controller
             'user_id' => 'required|exists:users,id',
             'urgent_id' => 'nullable',
             'urgent_title' => 'nullable|string',
+            'urgent_type' => 'nullable|in:plan_post,task',
         ]);
 
         $userId = (int) $request->input('user_id');
         $urgentId = $request->input('urgent_id');
         $urgentTitle = $request->input('urgent_title');
+        $urgentType = $request->input('urgent_type');
 
-        $result = $this->workloadService->autoRollbackWorkload($userId, $urgentId, $urgentTitle);
+        $result = $this->workloadService->autoRollbackWorkload($userId, $urgentId, $urgentTitle, $urgentType);
         $rolledBack = $result['rolled_back_items'] ?? [];
 
         return response()->json([

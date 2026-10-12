@@ -33,7 +33,10 @@ class ContentPlanController extends Controller
             'items:id,content_plan_id,plan_item_estimate_id,item_name,quantity,hours_per_unit,total_hours'
         ]);
 
-        if ($user->role->value === 'employee') {
+        $userRole = is_object($user->role) ? ($user->role->value ?? '') : (string)($user->role ?? '');
+        $isManager = in_array($userRole, ['manager', 'admin']) || ($user->job_title === 'Account Manager');
+
+        if (!$isManager && $userRole === 'employee') {
             $query->whereHas('users', function ($q) use ($user) {
                 $q->where('users.id', $user->id);
             });
@@ -48,14 +51,19 @@ class ContentPlanController extends Controller
         }
 
         if ($request->filled('status')) {
-            $query->where('status', $request->status);
+            $status = $request->status;
+            if (in_array($status, ['in_review', 'under_review'])) {
+                $query->whereIn('status', ['under_review', 'in_review']);
+            } else {
+                $query->where('status', $status);
+            }
         }
 
         if ($request->filled('plan_type')) {
             $query->where('plan_type', 'like', '%' . $request->plan_type . '%');
         }
 
-        if ($user->role->value === 'manager' && $request->filled('employee_id')) {
+        if ($isManager && $request->filled('employee_id')) {
             $query->whereHas('users', function ($q) use ($request) {
                 $q->where('users.id', $request->employee_id);
             });
@@ -118,7 +126,8 @@ class ContentPlanController extends Controller
     public function show(ContentPlan $content_plan)
     {
         $user = auth()->user();
-        $isManager = $user->role->value === 'manager';
+        $userRole = is_object($user->role) ? ($user->role->value ?? '') : (string)($user->role ?? '');
+        $isManager = in_array($userRole, ['manager', 'admin']) || ($user->job_title === 'Account Manager');
 
         if (!$isManager && $content_plan->requires_review && !in_array($content_plan->status, ['reviewed', 'completed'])) {
             return response()->json([
@@ -151,7 +160,8 @@ class ContentPlanController extends Controller
     public function boardPlans(Request $request)
     {
         $user = $request->user();
-        $isManager = $user->role->value === 'manager';
+        $userRole = is_object($user->role) ? ($user->role->value ?? '') : (string)($user->role ?? '');
+        $isManager = in_array($userRole, ['manager', 'admin']) || ($user->job_title === 'Account Manager');
 
         $query = ContentPlan::with(['client', 'items']);
 
@@ -165,7 +175,7 @@ class ContentPlanController extends Controller
             });
         }
 
-        if ($user->role->value === 'employee') {
+        if (!$isManager && $userRole === 'employee') {
             $query->where(function ($q) use ($user) {
                 $q->whereHas('users', function ($userQuery) use ($user) {
                     $userQuery->where('users.id', $user->id);
@@ -351,8 +361,11 @@ class ContentPlanController extends Controller
     public function duplicate(Request $request, ContentPlan $contentPlan)
     {
         $user = auth()->user();
-        if ($user->role->value !== 'manager') {
-            return response()->json(['message' => 'صلاحية الاستنساخ مخصصة للمدير فقط.'], 403);
+        $userRole = is_object($user->role) ? ($user->role->value ?? '') : (string)($user->role ?? '');
+        $isManager = in_array($userRole, ['manager', 'admin']) || ($user->job_title === 'Account Manager');
+
+        if (!$isManager) {
+            return response()->json(['message' => 'صلاحية الاستنساخ مخصصة للمدير أو مدير الحسابات فقط.'], 403);
         }
 
         $validated = $request->validate([
@@ -410,10 +423,12 @@ class ContentPlanController extends Controller
     public function toggleRecurrence(Request $request, ContentPlan $contentPlan)
     {
         $user = auth()->user();
+        $userRole = is_object($user->role) ? ($user->role->value ?? '') : (string)($user->role ?? '');
+        $isManager = in_array($userRole, ['manager', 'admin']) || ($user->job_title === 'Account Manager');
 
-        if ($user->role->value !== 'manager') {
+        if (!$isManager) {
             return response()->json([
-                'message' => 'صلاحية التحكم في التكرار التلقائي مخصصة للمدير فقط.'
+                'message' => 'صلاحية التحكم في التكرار التلقائي مخصصة للمدير أو مدير الحسابات فقط.'
             ], 403);
         }
 
@@ -434,10 +449,12 @@ class ContentPlanController extends Controller
     public function toggleClientNotifyPermission(Request $request, ContentPlan $contentPlan)
     {
         $user = auth()->user();
+        $userRole = is_object($user->role) ? ($user->role->value ?? '') : (string)($user->role ?? '');
+        $isManager = in_array($userRole, ['manager', 'admin']) || ($user->job_title === 'Account Manager');
 
-        if ($user->role->value !== 'manager') {
+        if (!$isManager) {
             return response()->json([
-                'message' => 'صلاحية التحكم في إتاحة الزر مخصصة للمدير فقط.'
+                'message' => 'صلاحية التحكم في إتاحة الزر مخصصة للمدير أو مدير الحسابات فقط.'
             ], 403);
         }
 

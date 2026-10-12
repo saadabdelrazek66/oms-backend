@@ -53,6 +53,7 @@ class QuickTaskController extends Controller
         $task = $this->quickTaskService->createTask(
             $request->validated(),
             $request->file('voice_record'),
+            $request->file('attachment_file'),
             $request->user()->id
         );
 
@@ -63,13 +64,23 @@ class QuickTaskController extends Controller
     {
         $request->validate([
             'feedback_text' => 'nullable|string|max:5000',
-            'voice_record' => 'nullable|file|mimes:audio/mpeg,mpga,mp3,wav,ogg,webm,mp4|max:10240',
+            'voice_record' => 'nullable|file',
+            'attachment_file' => 'nullable|file',
         ]);
+
+        if ($request->hasFile('voice_record')) {
+            \App\Modules\QuickTasks\Services\QuickTaskAttachmentSecurity::validate($request->file('voice_record'));
+        }
+
+        if ($request->hasFile('attachment_file')) {
+            \App\Modules\QuickTasks\Services\QuickTaskAttachmentSecurity::validate($request->file('attachment_file'));
+        }
 
         $task = $this->quickTaskService->submitTask(
             $quickTask,
             $request->only(['feedback_text']),
             $request->file('voice_record'),
+            $request->file('attachment_file'),
             $request->user()->id
         );
 
@@ -93,6 +104,7 @@ class QuickTaskController extends Controller
             $quickTask,
             $request->validated(),
             $request->file('voice_record'),
+            $request->file('attachment_file'),
             $request->user()->id
         );
 
@@ -106,7 +118,8 @@ class QuickTaskController extends Controller
         $task = $this->quickTaskService->updateTask(
             $quickTask,
             $request->validated(),
-            $request->file('voice_record')
+            $request->file('voice_record'),
+            $request->file('attachment_file')
         );
 
         return $this->successResponse(new QuickTaskResource($task), 'تم تعديل المهمة بنجاح');

@@ -123,6 +123,13 @@ class TaskController extends Controller
             unset($validated['assigned_to']);
         }
 
+        // 🛡️ إذا قام المستخدم بتعديل موعد الاستحقاق يدوياً، تلغى صفة الترحيل حتى لا يُلغى تعديله لاحقاً
+        if ($request->has('due_date') && !$request->has('is_displaced')) {
+            $validated['is_displaced'] = false;
+            $validated['original_due_date'] = null;
+            $validated['displaced_reason'] = null;
+        }
+
         $wasUrgent = (bool) $task->getOriginal('is_urgent');
         $wasCompleted = $task->getOriginal('status') === 'completed';
         $oldAssignedTo = $task->getOriginal('assigned_to');
@@ -245,5 +252,28 @@ class TaskController extends Controller
         }
 
         return response()->json(['message' => 'تم حذف المهمة']);
+    }
+
+    /**
+     * استرجاع الموعد الأصلي للمهمة المرحّلة يدوياً
+     */
+    public function restoreDueDate(Task $task)
+    {
+        if (!$task->is_displaced || !$task->original_due_date) {
+            return response()->json([
+                'message' => 'هذه المهمة ليست مرحلة أو لا تملك موعداً أصلياً مسجلاً.',
+            ], 422);
+        }
+
+        $task->due_date = $task->original_due_date;
+        $task->original_due_date = null;
+        $task->is_displaced = false;
+        $task->displaced_reason = null;
+        $task->saveQuietly();
+
+        return response()->json([
+            'message' => 'تم استرجاع موعد المهمة الأصلي بنجاح ↩️',
+            'data' => $task,
+        ]);
     }
 }

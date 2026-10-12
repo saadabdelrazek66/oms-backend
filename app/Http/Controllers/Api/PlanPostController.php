@@ -93,7 +93,7 @@ class PlanPostController extends Controller
         $plan->load('users', 'client');
         Notification::send($plan->users, new SystemNotification([
             'title' => $isUrgent ? 'بوست عاجل جديد 🚨' : 'إضافة بوست جديد 📝',
-            'body' => "تم إضافة صف بوست جديد بتاريخ {$request->target_date} في خطة العميل {$plan->client->name}.",
+            'body' => "تم إضافة صف بوست جديد بتاريخ {$this->formatTargetDate($post->target_date)} في خطة العميل {$plan->client->name}.",
             'url' => "/plan-board/{$plan->id}", 
             'icon' => $isUrgent ? 'exclamation-triangle' : 'plus-circle'
         ]));
@@ -309,6 +309,13 @@ class PlanPostController extends Controller
 
         $post->fill($data);
 
+        // 🛡️ إذا قام المستخدم بتعديل موعد التسليم يدوياً، تلغى صفة الترحيل حتى لا يُلغى تعديله لاحقاً عند الـ Rollback
+        if ($request->has('deadline') && !$request->has('is_displaced')) {
+            $post->is_displaced = false;
+            $post->original_deadline = null;
+            $post->displaced_reason = null;
+        }
+
         $changedFields = array_keys($post->getDirty());
         $lockedFields = is_array($post->locked_fields) ? $post->locked_fields : (json_decode($post->locked_fields, true) ?? []);
 
@@ -463,7 +470,7 @@ class PlanPostController extends Controller
             $managers = User::where('role', 'manager')->get();
             Notification::send($managers, new SystemNotification([
                 'title' => 'بوست بانتظار المراجعة ⏳',
-                'body' => "تم تسليم بوست جديد للمراجعة بتاريخ {$post->target_date}.",
+                'body' => "تم تسليم بوست جديد للمراجعة بتاريخ {$this->formatTargetDate($post->target_date)}.",
                 'url' => $planUrl,
                 'icon' => 'clock'
             ]));
@@ -498,7 +505,7 @@ class PlanPostController extends Controller
             $usersToNotify = User::whereIn('id', $targetUserIds)->get();
             Notification::send($usersToNotify, new SystemNotification([
                 'title' => 'تعديلات مطلوبة على البوست ⚠️',
-                'body' => "تم رفض البوست الخاص بتاريخ {$post->target_date}، يرجى التعديل.",
+                'body' => "تم رفض البوست الخاص بتاريخ {$this->formatTargetDate($post->target_date)}، يرجى التعديل.",
                 'url' => $planUrl,
                 'icon' => 'exclamation-circle'
             ]));
@@ -511,7 +518,7 @@ class PlanPostController extends Controller
                 if ($designer) {
                     Notification::send($designer, new SystemNotification([
                         'title' => 'تم اعتماد البوست ✅',
-                        'body' => "تم اعتماد البوست الخاص بتاريخ {$post->target_date} وهو جاهز للنشر.",
+                        'body' => "تم اعتماد البوست الخاص بتاريخ {$this->formatTargetDate($post->target_date)} وهو جاهز للنشر.",
                         'url' => $planUrl,
                         'icon' => 'check-circle'
                     ]));
@@ -524,7 +531,7 @@ class PlanPostController extends Controller
             $managers = User::where('role', 'manager')->get();
             Notification::send($managers, new SystemNotification([
                 'title' => 'تم نشر البوست بنجاح 🚀',
-                'body' => "تم نشر البوست الخاص بتاريخ {$post->target_date} على المنصات المطلوبة.",
+                'body' => "تم نشر البوست الخاص بتاريخ {$this->formatTargetDate($post->target_date)} على المنصات المطلوبة.",
                 'url' => $planUrl,
                 'icon' => 'rocket'
             ]));
@@ -663,7 +670,7 @@ class PlanPostController extends Controller
                 if ($designer) {
                     Notification::send($designer, new SystemNotification([
                         'title' => 'تم رفض البوست ⚠️',
-                        'body' => "تم رفض البوست الخاص بك لتاريخ {$post->target_date}، يرجى مراجعة الملاحظات وتعديله.",
+                        'body' => "تم رفض البوست الخاص بك لتاريخ {$this->formatTargetDate($post->target_date)}، يرجى مراجعة الملاحظات وتعديله.",
                         'url' => $planUrl,
                         'icon' => 'exclamation-circle'
                     ]));
@@ -679,7 +686,7 @@ class PlanPostController extends Controller
                     if ($designer) {
                         Notification::send($designer, new SystemNotification([
                             'title' => 'اعتماد نهائي للبوست ✅',
-                            'body' => "تم الاعتماد النهائي للبوست بتاريخ {$post->target_date} من قبل المدير.",
+                            'body' => "تم الاعتماد النهائي للبوست بتاريخ {$this->formatTargetDate($post->target_date)} من قبل المدير.",
                             'url' => $planUrl,
                             'icon' => 'check-circle'
                         ]));
@@ -692,7 +699,7 @@ class PlanPostController extends Controller
                 $managers = User::where('role', 'manager')->get();
                 Notification::send($managers, new SystemNotification([
                     'title' => 'بوست جاهز للاعتماد النهائي ⏳',
-                    'body' => "تم اعتماد البوست بتاريخ {$post->target_date} من قبل القسم وهو بانتظار مراجعتك النهائية.",
+                    'body' => "تم اعتماد البوست بتاريخ {$this->formatTargetDate($post->target_date)} من قبل القسم وهو بانتظار مراجعتك النهائية.",
                     'url' => $planUrl,
                     'icon' => 'clock'
                 ]));
@@ -745,7 +752,7 @@ class PlanPostController extends Controller
 
         Notification::send($usersToNotify, new SystemNotification([
             'title' => 'إعادة تسليم بوست 🔄',
-            'body' => "تم تعديل وإعادة تسليم البوست الخاص بتاريخ {$post->target_date} للمراجعة.",
+            'body' => "تم تعديل وإعادة تسليم البوست الخاص بتاريخ {$this->formatTargetDate($post->target_date)} للمراجعة.",
             'url' => $planUrl,
             'icon' => 'refresh'
         ]));
@@ -851,7 +858,7 @@ class PlanPostController extends Controller
                 
                 Notification::send($designer, new SystemNotification([
                     'title' => 'تم تكليفك ببوست جديد 🚀',
-                    'body' => "تم إعطاء إشارة البدء لك لتنفيذ بوست بتاريخ {$post->target_date} الخاص بـ {$clientName}.",
+                    'body' => "تم إعطاء إشارة البدء لك لتنفيذ بوست بتاريخ {$this->formatTargetDate($post->target_date)} الخاص بـ {$clientName}.",
                     'url' => "/plan-board/{$plan->id}",
                     'icon' => 'play'
                 ]));
@@ -1274,5 +1281,21 @@ class PlanPostController extends Controller
             'message' => 'تم استرجاع موعد التسليم الأصلي بنجاح ↩️',
             'data' => $post,
         ]);
+    }
+
+    /**
+     * تنسيق تاريخ البوست لرسائل الإشعارات بدون أوقات لتجنب انعكاس الترتيب في النصوص العربية
+     */
+    private function formatTargetDate($date): string
+    {
+        if (!$date) {
+            return 'غير محدد';
+        }
+
+        try {
+            return \Carbon\Carbon::parse($date)->format('Y-m-d');
+        } catch (\Throwable $e) {
+            return (string) $date;
+        }
     }
 }

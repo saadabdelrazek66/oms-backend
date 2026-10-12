@@ -11,7 +11,7 @@ class QuickTask extends Model
 
     protected $fillable = [
         'created_by', 'assigned_to', 'title', 'description',
-        'voice_record_path', 'deadline', 'status'
+        'voice_record_path', 'attachment_path', 'deadline', 'status'
     ];
 
     protected $casts = [

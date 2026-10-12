@@ -11,7 +11,7 @@ class QuickTaskFeedbackLog extends Model
 
     protected $fillable = [
         'quick_task_id', 'reviewer_id', 'feedback_text',
-        'voice_record_path', 'status_changed_to'
+        'voice_record_path', 'attachment_path', 'status_changed_to'
     ];
 
     public function quickTask()
