@@ -58,6 +58,15 @@ class UserRequest extends FormRequest
 
             'work_type' => ['required', new Enum(WorkType::class)],
 
+            'work_start_time' => 'nullable|string',
+            'work_end_time' => 'nullable|string',
+            'daily_work_hours' => 'nullable|numeric|min:0.5|max:24',
+
+            'work_start_day' => 'nullable|string|in:saturday,sunday,monday,tuesday,wednesday,thursday,friday',
+            'work_end_day' => 'nullable|string|in:saturday,sunday,monday,tuesday,wednesday,thursday,friday',
+            'working_days' => 'nullable|array',
+            'working_days.*' => 'string|in:saturday,sunday,monday,tuesday,wednesday,thursday,friday',
+
             'primary_department_id' => 'nullable|exists:departments,id',
 
             'additional_department_ids' => 'nullable|array',

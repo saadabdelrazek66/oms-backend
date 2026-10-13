@@ -94,10 +94,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/user-tasks', [PlanPostController::class, 'getUserTasks']);
 
     // --- محرك سعة العمل والترحيل التلقائي للطوارئ ---
+    Route::get('/workload/today-board', [\App\Http\Controllers\Api\WorkloadController::class, 'getTodayBoard']);
     Route::get('/workload/daily-capacity', [\App\Http\Controllers\Api\WorkloadController::class, 'getDailyCapacity']);
     Route::get('/workload/week-capacity', [\App\Http\Controllers\Api\WorkloadController::class, 'getWeekCapacity']);
     Route::post('/workload/cascade-urgent', [\App\Http\Controllers\Api\WorkloadController::class, 'triggerAutoCascade']);
     Route::post('/workload/rollback-urgent', [\App\Http\Controllers\Api\WorkloadController::class, 'triggerAutoRollback']);
+    Route::post('/workload/shift-hours', [\App\Http\Controllers\Api\WorkloadController::class, 'shiftHours']);
+    Route::post('/workload/restore-shifted-hours', [\App\Http\Controllers\Api\WorkloadController::class, 'restoreShiftedHours']);
 
     Route::post('/content-plans/{contentPlan}/duplicate', [App\Http\Controllers\Api\ContentPlanController::class, 'duplicate']);
     Route::patch('/content-plans/{contentPlan}/toggle-recurrence', [ContentPlanController::class, 'toggleRecurrence']);

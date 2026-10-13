@@ -38,6 +38,8 @@ class QuickTaskService
             'voice_record_path' => $voicePath,
             'attachment_path' => $attachmentPath,
             'deadline' => $data['deadline'],
+            'estimated_hours' => isset($data['estimated_hours']) ? (float)$data['estimated_hours'] : 1.00,
+            'is_urgent' => !empty($data['is_urgent']),
             'status' => 'pending'
         ]);
 
@@ -58,6 +60,17 @@ class QuickTaskService
             }
         } catch (\Throwable $e) {
             Log::warning('QuickTask Notification Error (createTask): ' . $e->getMessage());
+        }
+
+        // 🔄 تشغيل الترحيل التلقائي إذا كانت المهمة عاجلة
+        if (!empty($task->is_urgent) && $task->assigned_to && $task->deadline) {
+            try {
+                $urgentDate = \Carbon\Carbon::parse($task->deadline);
+                $taskTitle = "مهمة سريعة: " . ($task->title ?? '');
+                app(\App\Services\WorkloadCascadingService::class)->autoCascadeWorkload((int) $task->assigned_to, $urgentDate, $task, $taskTitle, 'quick_task');
+            } catch (\Throwable $e) {
+                Log::error("Error in autoCascadeWorkload for quick task {$task->id}: " . $e->getMessage());
+            }
         }
 
         return $task;
@@ -222,14 +235,23 @@ class QuickTaskService
             $attachmentPath = QuickTaskAttachmentSecurity::storeSafely($attachmentFile, 'attachment_update');
         }
 
-        $task->update([
+        $updateFields = [
             'assigned_to' => $newAssigneeId,
             'title' => array_key_exists('title', $data) ? $data['title'] : $task->title,
             'description' => array_key_exists('description', $data) ? $data['description'] : $task->description,
             'voice_record_path' => $voicePath,
             'attachment_path' => $attachmentPath,
             'deadline' => $data['deadline'] ?? $task->deadline,
-        ]);
+        ];
+
+        if (array_key_exists('estimated_hours', $data)) {
+            $updateFields['estimated_hours'] = (float)$data['estimated_hours'];
+        }
+        if (array_key_exists('is_urgent', $data)) {
+            $updateFields['is_urgent'] = (bool)$data['is_urgent'];
+        }
+
+        $task->update($updateFields);
 
         // 🔔 إشعار داخلي: عند تعديل المهمة أو إعادة إسنادها لموظف آخر
         try {

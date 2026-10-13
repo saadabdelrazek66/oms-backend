@@ -1150,6 +1150,37 @@ class PlanPostController extends Controller
                 }
             }
 
+            // معلومات الساعات اليومية والمرحلة
+            $todayStr = \Carbon\Carbon::today()->toDateString();
+            $allocToday = \App\Models\TaskWorkloadAllocation::where('allocatable_type', 'plan_post')
+                ->where('allocatable_id', $task->id)
+                ->whereDate('work_date', $todayStr)
+                ->first();
+
+            $totalEst = app(\App\Services\WorkloadCascadingService::class)->getPostEstimatedHours($task);
+            $task->total_estimated_hours = $totalEst;
+
+            if ($allocToday) {
+                $task->allocated_hours_today = (float) $allocToday->allocated_hours;
+                $task->is_shifted_to_today = !empty($allocToday->shifted_from_date);
+                $task->shifted_from_date = $allocToday->shifted_from_date ? \Carbon\Carbon::parse($allocToday->shifted_from_date)->toDateString() : null;
+            } else {
+                $otherAllocs = \App\Models\TaskWorkloadAllocation::where('allocatable_type', 'plan_post')
+                    ->where('allocatable_id', $task->id)
+                    ->whereDate('work_date', '!=', $todayStr)
+                    ->sum('allocated_hours');
+                $task->allocated_hours_today = max(0, round($totalEst - $otherAllocs, 2));
+                $task->is_shifted_to_today = false;
+                $task->shifted_from_date = null;
+            }
+
+            $futureShifted = (float) \App\Models\TaskWorkloadAllocation::where('allocatable_type', 'plan_post')
+                ->where('allocatable_id', $task->id)
+                ->whereDate('work_date', '>', $todayStr)
+                ->sum('allocated_hours');
+            $task->shifted_hours_to_future = round($futureShifted, 2);
+            $task->is_partially_shifted = ($futureShifted > 0);
+
             $task->smart_badges = $badges;
             return $task;
         });

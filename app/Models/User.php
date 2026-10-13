@@ -16,7 +16,7 @@ use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-#[Fillable(['name','job_title', 'email', 'password', 'role', 'phone','work_type'])]
+#[Fillable(['name','job_title', 'email', 'password', 'role', 'phone','work_type', 'work_start_time', 'work_end_time', 'daily_work_hours', 'work_start_day', 'work_end_day', 'working_days'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -35,6 +35,8 @@ class User extends Authenticatable
             'password' => 'hashed',
             'role' => Role::class,
             'work_type' => WorkType::class,
+            'daily_work_hours' => 'float',
+            'working_days' => 'array',
         ];
     }
 
@@ -49,6 +51,44 @@ class User extends Authenticatable
     public function hasRole(Role $role): bool
     {
         return $this->role === $role;
+    }
+
+    /**
+     * فحص ما إذا كان يوم محدد هو يوم عمل لهذا الموظف
+     */
+    public function isWorkingDay($date): bool
+    {
+        $carbon = $date instanceof \Carbon\Carbon ? $date : \Carbon\Carbon::parse($date);
+        $dayName = strtolower($carbon->format('l'));
+
+        $days = $this->working_days;
+        if (empty($days)) {
+            // الافتراضي في حال عدم تحديد أيام: من السبت إلى الخميس (الجمعة عطلة)
+            return $dayName !== 'friday';
+        }
+        return in_array($dayName, array_map('strtolower', $days));
+    }
+
+    /**
+     * الحصول على يوم العمل التالي للموظف مع تخطي أيام العطلة الأسبوعية
+     */
+    public function getNextWorkingDay($date): \Carbon\Carbon
+    {
+        $next = ($date instanceof \Carbon\Carbon ? $date->copy() : \Carbon\Carbon::parse($date))->addDay()->startOfDay();
+        $safety = 0;
+        while (!$this->isWorkingDay($next) && $safety < 14) {
+            $next->addDay();
+            $safety++;
+        }
+        return $next;
+    }
+
+    /**
+     * الحصول على سعة ساعات العمل اليومية المعتمدة للموظف
+     */
+    public function getDailyCapacity(): float
+    {
+        return (float) ($this->daily_work_hours && (float) $this->daily_work_hours > 0 ? $this->daily_work_hours : 8.0);
     }
 
     // علاقة الموظف بالخطط المشترك بها
