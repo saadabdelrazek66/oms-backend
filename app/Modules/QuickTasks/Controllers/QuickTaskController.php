@@ -128,13 +128,9 @@ class QuickTaskController extends Controller
     public function destroy(Request $request, QuickTask $quickTask)
     {
         $user = $request->user();
-        $role = is_object($user->role) ? $user->role->value : $user->role;
+        $hasDeletePerm = $user->isManager() || $user->hasPermission('quick_tasks.delete');
 
-        if ((int)$user->id === (int)$quickTask->assigned_to && $role !== 'manager') {
-            return response()->json(['status' => false, 'message' => 'غير مصرح لك بحذف هذه المهمة'], 403);
-        }
-
-        if ($role !== 'manager' && (int)$user->id !== (int)$quickTask->created_by) {
+        if (!$hasDeletePerm && (int)$user->id !== (int)$quickTask->created_by) {
             return response()->json(['status' => false, 'message' => 'غير مصرح لك بحذف هذه المهمة'], 403);
         }
 

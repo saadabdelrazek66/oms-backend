@@ -8,7 +8,7 @@ class StoreQuickTaskRequest extends FormRequest
 {
     public function authorize()
     {
-        return $this->user()->role->value === 'manager';
+        $user = $this->user(); return $user && ($user->isManager() || $user->hasPermission('quick_tasks.create'));
     }
 
     public function rules()

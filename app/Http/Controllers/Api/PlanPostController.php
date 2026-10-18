@@ -82,6 +82,18 @@ class PlanPostController extends Controller
 
         $isUrgent = $request->boolean('is_urgent');
 
+        // تطبيق الحد الأدنى لمهلة تسليم البريف من الإعدادات العامة (min_brief_lead_hours)
+        $minLeadHours = (int) app(\App\Services\SettingService::class)->get('min_brief_lead_hours', 48);
+        if (!$isManager && $minLeadHours > 0 && !$isUrgent) {
+            $targetDateTime = \Carbon\Carbon::parse($request->target_date)->endOfDay();
+            $earliestAllowed = now()->addHours($minLeadHours);
+            if ($targetDateTime->lt($earliestAllowed)) {
+                return response()->json([
+                    'message' => "عذراً، تاريخ النشر المخطط أقرب من الحد الأدنى لمهلة البريف المعتمدة ({$minLeadHours} ساعة). يمكنك تحديد موعد بعد " . $earliestAllowed->format('Y-m-d') . " أو وسم المنشور كـ 'عاجل'."
+                ], 422);
+            }
+        }
+
         $post = $plan->posts()->create([
             'target_date' => $request->target_date,
             'is_urgent' => $isUrgent, 
@@ -162,6 +174,14 @@ class PlanPostController extends Controller
             if ($isDelivered && !$isRejected && !$isFullyApproved) {
                 return response()->json([
                     'message' => 'عفواً، المنشور قيد المراجعة حالياً. تم قفل المنشور ولا يمكنك التعديل عليه إلا في حال تم رفضه.'
+                ], 403);
+            }
+
+            // تطبيق إعداد القفل التلقائي بعد الاعتماد النهائي (auto_lock_on_approval)
+            $autoLock = (bool) app(\App\Services\SettingService::class)->get('auto_lock_on_approval', true);
+            if ($autoLock && $isFullyApproved) {
+                return response()->json([
+                    'message' => 'عذراً، تم اعتماد هذا المنشور نهائياً وهو مقفل الآن ضد أي تعديل وفقاً لسياسات المنظومة.'
                 ], 403);
             }
         }
@@ -567,6 +587,14 @@ class PlanPostController extends Controller
         if ($request->review_type == 'manager') {
             if (!$isManager) {
                 return response()->json(['message' => 'غير مصرح لك. هذه المراجعة خاصة بالمدير فقط.'], 403);
+            }
+
+            // تطبيق إلزامية مراجعة رئيس/مراجعي القسم المعني أولاً (require_dept_review_first)
+            $requireDeptFirst = (bool) app(\App\Services\SettingService::class)->get('require_dept_review_first', true);
+            if ($requireDeptFirst && $request->status == 'معتمد' && $post->review_status !== 'معتمد') {
+                return response()->json([
+                    'message' => 'عذراً، سياسة المنظومة تلزم باعتماد رئيس ومراجعي القسم المعني أولاً قبل الاعتماد الإداري النهائي.'
+                ], 422);
             }
 
             if ($request->status == 'مرفوض') {

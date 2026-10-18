@@ -14,8 +14,8 @@ class SystemLogController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        if ($request->user()->role->value !== 'manager') {
-            return response()->json(['message' => 'غير مصرح لك بالوصول'], 403);
+        if (!$request->user()->isManager() && !$request->user()->hasPermission('logs.view')) {
+            return response()->json(['message' => 'غير مصرح لك بالوصول لسجل النظام.'], 403);
         }
 
         $query = Activity::with('causer')->latest();

@@ -8,7 +8,7 @@ class UpdateProjectRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return auth()->user()->role->value === 'manager';
+        $user = auth()->user(); return $user && ($user->isManager() || $user->hasPermission('projects.edit'));
     }
 
     public function rules(): array

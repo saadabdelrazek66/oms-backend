@@ -11,6 +11,20 @@ class ValidDriveFileLink implements ValidationRule
     {
         $value = strtolower($value);
 
+        // فحص إعداد الفحص الصارم لروابط درايف
+        try {
+            $isStrict = (bool) app(\App\Services\SettingService::class)->get('strict_drive_validation', true);
+        } catch (\Throwable $e) {
+            $isStrict = true;
+        }
+
+        if (!$isStrict) {
+            if (!filter_var($value, FILTER_VALIDATE_URL)) {
+                $fail('يجب إدخال رابط URL صالح.');
+            }
+            return;
+        }
+
         if (str_contains($value, '/folders/')) {
             $fail('الرابط المدخل عبارة عن "مجلد" درايف. يجب إدخال رابط "الملف" المرفوع من داخل المجلد.');
             return;

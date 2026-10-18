@@ -2,6 +2,9 @@
 
 namespace App\Models;
 
+use App\Models\Permission;
+use App\Services\PermissionPresetService;
+
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -16,7 +19,8 @@ use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-#[Fillable(['name','job_title', 'email', 'password', 'role', 'phone','work_type', 'work_start_time', 'work_end_time', 'daily_work_hours', 'work_start_day', 'work_end_day', 'working_days'])]
+#[Fillable(['name','job_title', 'email', 'password', 'role',
+        'has_custom_permissions', 'phone','work_type', 'work_start_time', 'work_end_time', 'daily_work_hours', 'work_start_day', 'work_end_day', 'working_days'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -28,6 +32,8 @@ class User extends Authenticatable
      *
      * @return array<string, string>
      */
+    protected $appends = ['permission_codes'];
+
     protected function casts(): array
     {
         return [
@@ -63,8 +69,13 @@ class User extends Authenticatable
 
         $days = $this->working_days;
         if (empty($days)) {
-            // الافتراضي في حال عدم تحديد أيام: من السبت إلى الخميس (الجمعة عطلة)
-            return $dayName !== 'friday';
+            // استرجاع أيام العطلة المعتمدة من إعدادات المنظومة ديناميكياً
+            try {
+                $weekendDays = app(\App\Services\SettingService::class)->get('weekend_days', ['friday']);
+                return !in_array($dayName, array_map('strtolower', (array) $weekendDays));
+            } catch (\Throwable $e) {
+                return $dayName !== 'friday';
+            }
         }
         return in_array($dayName, array_map('strtolower', $days));
     }
@@ -84,11 +95,17 @@ class User extends Authenticatable
     }
 
     /**
-     * الحصول على سعة ساعات العمل اليومية المعتمدة للموظف
+     * الحصول على سعة ساعات العمل اليومية المعتمدة للموظف ديناميكياً من الإعدادات
      */
     public function getDailyCapacity(): float
     {
-        return (float) ($this->daily_work_hours && (float) $this->daily_work_hours > 0 ? $this->daily_work_hours : 8.0);
+        try {
+            $defaultDaily = (float) app(\App\Services\SettingService::class)->get('default_daily_hours', 8.0);
+        } catch (\Throwable $e) {
+            $defaultDaily = 8.0;
+        }
+
+        return (float) ($this->daily_work_hours && (float) $this->daily_work_hours > 0 ? $this->daily_work_hours : $defaultDaily);
     }
 
     // علاقة الموظف بالخطط المشترك بها
@@ -131,5 +148,67 @@ class User extends Authenticatable
     public function assignedTasks()
     {
         return $this->hasMany(Task::class, 'assigned_to');
+    }
+
+    // --- نظام الصلاحيات (RBAC Permissions) ---
+
+    public function permissions()
+    {
+        return $this->belongsToMany(Permission::class, 'user_permissions')->withTimestamps();
+    }
+
+    public function isManager(): bool
+    {
+        $roleValue = is_object($this->role) ? ($this->role->value ?? '') : (string)($this->role ?? '');
+        return strtolower($roleValue) === 'manager';
+    }
+
+    public function getPermissionCodes(): array
+    {
+        if ($this->isManager()) {
+            return Permission::pluck('code')->toArray();
+        }
+
+        if ($this->relationLoaded('permissions')) {
+            $codes = $this->permissions->pluck('code')->toArray();
+        } else {
+            $codes = $this->permissions()->pluck('code')->toArray();
+        }
+
+        // إذا تم تخصيص صلاحيات للموظف (سواء فارغة أو محددة)، نعتمدها ولا نعود للـ preset
+        if ($this->has_custom_permissions) {
+            return $codes;
+        }
+
+        // إذا لم يكن للموظف أي صلاحية مخصصة، نمنحه الصلاحيات الافتراضية المناسبة لوظيفته
+        if (empty($codes)) {
+            return PermissionPresetService::getDefaultPermissionsForUser($this);
+        }
+
+        return $codes;
+    }
+
+    public function getPermissionCodesAttribute(): array
+    {
+        return $this->getPermissionCodes();
+    }
+
+    public function hasPermission(string $permissionCode): bool
+    {
+        if ($this->isManager()) {
+            return true;
+        }
+
+        return in_array($permissionCode, $this->getPermissionCodes());
+    }
+
+    public function hasAnyPermission(array $permissionCodes): bool
+    {
+        if ($this->isManager()) {
+            return true;
+        }
+
+        $userCodes = $this->getPermissionCodes();
+        return !empty(array_intersect($permissionCodes, $userCodes));
     }
 }

@@ -14,13 +14,15 @@ class UpdateQuickTaskRequest extends FormRequest
         $role = is_object($user->role) ? $user->role->value : $user->role;
         $quickTask = $this->route('quickTask');
 
-        // منع الموظف (المنفذ) من التعديل نهائياً إلا إذا كان مديراً
-        if ($quickTask && (int)$user->id === (int)$quickTask->assigned_to && $role !== 'manager') {
+        $hasEditPerm = $user->isManager() || $user->hasPermission('quick_tasks.edit');
+
+        // منع الموظف (المنفذ) من التعديل إلا إذا كان يمتلك صلاحية التعديل
+        if ($quickTask && (int)$user->id === (int)$quickTask->assigned_to && !$hasEditPerm) {
             return false;
         }
 
-        // السماح للمدير أو لمن قام بإنشاء المهمة
-        return $role === 'manager' || ($quickTask && (int)$user->id === (int)$quickTask->created_by);
+        // السماح للمدير أو لمن يملك الصلاحية أو لمن قام بإنشاء المهمة
+        return $hasEditPerm || ($quickTask && (int)$user->id === (int)$quickTask->created_by);
     }
 
     public function rules()

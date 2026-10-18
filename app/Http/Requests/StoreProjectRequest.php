@@ -9,7 +9,7 @@ class StoreProjectRequest extends FormRequest
     public function authorize(): bool
     {
         // فقط المدير من يحق له إنشاء مشاريع
-        return auth()->user()->role->value === 'manager';
+        $user = auth()->user(); return $user && ($user->isManager() || $user->hasPermission('projects.create'));
     }
 
     public function rules(): array

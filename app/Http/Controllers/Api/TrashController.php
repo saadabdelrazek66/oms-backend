@@ -18,13 +18,23 @@ class TrashController extends Controller
     /**
      * التحقق من صلاحية المدير
      */
-    protected function checkManager(Request $request): ?JsonResponse
+    protected function checkManager(Request $request, string $action = 'view'): ?JsonResponse
     {
-        $role = $request->user()->role;
-        $roleValue = is_object($role) && property_exists($role, 'value') ? $role->value : (string) $role;
-        if ($roleValue !== 'manager') {
+        $user = $request->user();
+        if ($user->isManager()) {
+            return null;
+        }
+
+        $perm = match ($action) {
+            'restore' => 'trash.restore',
+            'force' => 'trash.force_delete',
+            default => 'trash.view',
+        };
+
+        if (!$user->hasPermission($perm)) {
             return response()->json([
-                'message' => 'غير مصرح لك بالوصول، سلة المهملات متاحة للمدير فقط.'
+                'message' => 'غير مصرح لك بالوصول، لا تمتلك صلاحية سلة المهملات المطلوبة.',
+                'required_permission' => $perm
             ], 403);
         }
         return null;
@@ -180,7 +190,7 @@ class TrashController extends Controller
      */
     public function restore(Request $request, string $category, int $id): JsonResponse
     {
-        if ($deny = $this->checkManager($request)) return $deny;
+        if ($deny = $this->checkManager($request, 'restore')) return $deny;
 
         $config = $this->getCategoryConfig($category);
         if (!$config) {
@@ -216,7 +226,7 @@ class TrashController extends Controller
      */
     public function forceDelete(Request $request, string $category, int $id): JsonResponse
     {
-        if ($deny = $this->checkManager($request)) return $deny;
+        if ($deny = $this->checkManager($request, 'force')) return $deny;
 
         $config = $this->getCategoryConfig($category);
         if (!$config) {
@@ -260,7 +270,7 @@ class TrashController extends Controller
      */
     public function restoreAll(Request $request, string $category): JsonResponse
     {
-        if ($deny = $this->checkManager($request)) return $deny;
+        if ($deny = $this->checkManager($request, 'restore')) return $deny;
 
         $config = $this->getCategoryConfig($category);
         if (!$config) {
@@ -293,7 +303,7 @@ class TrashController extends Controller
      */
     public function emptyTrash(Request $request, string $category): JsonResponse
     {
-        if ($deny = $this->checkManager($request)) return $deny;
+        if ($deny = $this->checkManager($request, 'force')) return $deny;
 
         $config = $this->getCategoryConfig($category);
         if (!$config) {

@@ -35,7 +35,11 @@ class WorkloadCascadingService
             }
         }
 
-        return self::MAX_DAILY_HOURS;
+        try {
+            return (float) app(\App\Services\SettingService::class)->get('default_daily_hours', 8.0);
+        } catch (\Throwable $e) {
+            return self::MAX_DAILY_HOURS;
+        }
     }
 
     /**
@@ -56,7 +60,14 @@ class WorkloadCascadingService
 
         $next = $date->copy()->addDay()->startOfDay();
         $safety = 0;
-        while ($next->isFriday() && $safety < 14) {
+        try {
+            $weekendDays = app(\App\Services\SettingService::class)->get('weekend_days', ['friday']);
+        } catch (\Throwable $e) {
+            $weekendDays = ['friday'];
+        }
+        $weekendDaysLower = array_map('strtolower', (array) $weekendDays);
+
+        while (in_array(strtolower($next->format('l')), $weekendDaysLower) && $safety < 14) {
             $next->addDay();
             $safety++;
         }
@@ -352,7 +363,7 @@ class WorkloadCascadingService
             'max_daily_capacity' => $userCapacity,
             'total_hours' => $roundedTotal,
             'remaining_hours' => max(0.0, round($userCapacity - $roundedTotal, 2)),
-            'is_overloaded' => ($roundedTotal > $userCapacity),
+            'is_overloaded' => ($roundedTotal > ($userCapacity * ((float) app(\App\Services\SettingService::class)->get('overload_threshold_percentage', 100) / 100.0))),
             'overload_hours' => max(0.0, round($roundedTotal - $userCapacity, 2)),
             'plan_posts' => $processedPosts,
             'tasks' => $processedTasks,
@@ -553,6 +564,20 @@ class WorkloadCascadingService
      */
     public function autoCascadeWorkload(int $userId, Carbon $startDate, $urgentItem, string $urgentTitle, ?string $urgentType = null): array
     {
+        try {
+            $cascadeEnabled = (bool) app(\App\Services\SettingService::class)->get('auto_cascade_enabled', true);
+        } catch (\Throwable $e) {
+            $cascadeEnabled = true;
+        }
+
+        if (!$cascadeEnabled) {
+            return [
+                'cascaded' => false,
+                'message' => 'محرك ترحيل المهام التلقائي معطل في الإعدادات العامة.',
+                'displaced_items' => []
+            ];
+        }
+
         return DB::transaction(function () use ($userId, $startDate, $urgentItem, $urgentTitle, $urgentType) {
             $user = User::where('id', $userId)->lockForUpdate()->first();
             $userCapacity = $this->getUserDailyCapacity($user);
@@ -1055,7 +1080,7 @@ class WorkloadCascadingService
                 'max_daily_capacity' => $userCapacity,
                 'capacity_percentage' => (int) round(($roundedTotal / $userCapacity) * 100),
                 'overload_hours' => max(0.0, round($roundedTotal - $userCapacity, 2)),
-                'is_overloaded' => ($roundedTotal > $userCapacity),
+                'is_overloaded' => ($roundedTotal > ($userCapacity * ((float) app(\App\Services\SettingService::class)->get('overload_threshold_percentage', 100) / 100.0))),
                 'is_working_day_today' => $isWorkingDayToday,
                 'next_working_day' => $nextWorkingDay,
                 'total_tasks_count' => count($timelineItems),
