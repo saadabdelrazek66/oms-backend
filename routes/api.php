@@ -31,12 +31,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/plan-posts/{post}/review', [PlanPostController::class, 'review']);
 
     Route::get('/departments/list-all', [DepartmentController::class, 'listAll']);
-    Route::get('/users', [UserController::class, 'index'])->middleware('permission:users.view');
+    Route::get('/users', [UserController::class, 'index'])->middleware('permission:users.view,plans.view,posts.view,projects.view,tasks.view,quick_tasks.view');
     Route::get('/users/{user}', [UserController::class, 'show'])->middleware('permission:users.view');
-    Route::post('/users', [UserController::class, 'store'])->middleware('role:manager');
-    Route::put('/users/{user}', [UserController::class, 'update'])->middleware('role:manager');
-    Route::patch('/users/{user}', [UserController::class, 'update'])->middleware('role:manager');
-    Route::delete('/users/{user}', [UserController::class, 'destroy'])->middleware('role:manager');
+    Route::post('/users', [UserController::class, 'store'])->middleware('permission:users.create');
+    Route::put('/users/{user}', [UserController::class, 'update'])->middleware('permission:users.edit');
+    Route::patch('/users/{user}', [UserController::class, 'update'])->middleware('permission:users.edit');
+    Route::delete('/users/{user}', [UserController::class, 'destroy'])->middleware('permission:users.delete');
 
     // --- نظام إدارة الصلاحيات (RBAC Permissions) للمدير ---
     Route::middleware('role:manager')->prefix('permissions')->group(function () {

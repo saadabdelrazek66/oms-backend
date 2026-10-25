@@ -365,6 +365,39 @@ class PermissionSeeder extends Seeder
                 'sort_order' => 91,
             ],
 
+            // --- 11. إدارة الموظفين والمستخدمين (Users & Team) ---
+            [
+                'code' => 'users.view',
+                'module' => 'users',
+                'action' => 'view',
+                'name_ar' => 'عرض المستخدمين وفريق العمل',
+                'description_ar' => 'عرض قائمة الموظفين والمستخدمين في النظام وبياناتهم الأساسية',
+                'sort_order' => 95,
+            ],
+            [
+                'code' => 'users.create',
+                'module' => 'users',
+                'action' => 'create',
+                'name_ar' => 'إضافة موظف جديد',
+                'description_ar' => 'إنشاء حساب موظف جديد في النظام وتعيين أقسامه',
+                'sort_order' => 96,
+            ],
+            [
+                'code' => 'users.edit',
+                'module' => 'users',
+                'action' => 'edit',
+                'name_ar' => 'تعديل بيانات الموظف',
+                'description_ar' => 'تعديل بيانات الموظف وأقسامه ونظام وساعات عمله',
+                'sort_order' => 97,
+            ],
+            [
+                'code' => 'users.delete',
+                'module' => 'users',
+                'action' => 'delete',
+                'name_ar' => 'حذف موظف',
+                'description_ar' => 'حذف حساب الموظف من النظام',
+                'sort_order' => 98,
+            ],
             // --- 10. سجل النظام والمحفوظات (System Logs & Trash) ---
             [
                 'code' => 'logs.view',

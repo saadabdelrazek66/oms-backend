@@ -30,6 +30,7 @@ class PermissionController extends Controller
             'quick_tasks' => 'المهام السريعة',
             'workload' => 'لوحة اليوم وحمل العمل',
             'departments' => 'إدارة الأقسام',
+            'users' => 'المستخدمين وفريق العمل',
             'logs' => 'سجل النظام والنشاطات',
             'trash' => 'سلة المهملات والمحفوظات',
         ];
